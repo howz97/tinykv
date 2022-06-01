@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
@@ -66,13 +65,9 @@ func TestRawGet1(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
-		for {
-			err = cleanUpTestData(conf)
-			if err == nil {
-				break
-			}
-			fmt.Println("cleanUpTestData err", err)
-			time.Sleep(1 * time.Second)
+		err = cleanUpTestData(conf)
+		if err != nil {
+			panic(err)
 		}
 	}()
 
