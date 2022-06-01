@@ -1,8 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
@@ -42,7 +44,11 @@ func Iter(s *standalone_storage.StandAloneStorage, cf string) (engine_util.DBIte
 
 func cleanUpTestData(conf *config.Config) error {
 	if conf != nil {
-		return os.RemoveAll(conf.DBPath)
+		err := os.RemoveAll(conf.DBPath)
+		if err != nil {
+			fmt.Printf("failed to cleanUpTestData: %v \n", err)
+		}
+		return err
 	}
 	return nil
 }
@@ -50,10 +56,25 @@ func cleanUpTestData(conf *config.Config) error {
 func TestRawGet1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	s.Start()
+	err := s.Start()
+	if err != nil {
+		panic(err)
+	}
 	server := NewServer(s)
-	defer cleanUpTestData(conf)
-	defer s.Stop()
+	defer func() {
+		err := s.Stop()
+		if err != nil {
+			panic(err)
+		}
+		for {
+			err = cleanUpTestData(conf)
+			if err == nil {
+				break
+			}
+			fmt.Println("cleanUpTestData err", err)
+			time.Sleep(1 * time.Second)
+		}
+	}()
 
 	cf := engine_util.CfDefault
 	Set(s, cf, []byte{99}, []byte{42})
@@ -70,7 +91,9 @@ func TestRawGet1(t *testing.T) {
 func TestRawGetNotFound1(t *testing.T) {
 	conf := config.NewTestConfig()
 	s := standalone_storage.NewStandAloneStorage(conf)
-	s.Start()
+	if err := s.Start(); err != nil {
+		panic(err)
+	}
 	server := NewServer(s)
 	defer cleanUpTestData(conf)
 	defer s.Stop()
