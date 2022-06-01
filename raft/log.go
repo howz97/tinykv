@@ -89,3 +89,12 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 	// Your Code Here (2A).
 	return 0, nil
 }
+
+func (l *RaftLog) NewerThan(term, idx uint64) bool {
+	li := l.LastIndex()
+	lt, err := l.Term(li)
+	if err != nil {
+		panic(err)
+	}
+	return lt > term || (lt == term && li > idx)
+}
