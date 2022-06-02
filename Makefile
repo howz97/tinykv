@@ -1,4 +1,4 @@
-SHELL := /bin/bash
+SHELL := powershell.exe
 PROJECT=tinykv
 GOPATH ?= $(shell go env GOPATH)
 
@@ -29,7 +29,8 @@ test:
 	@export TZ='Asia/Shanghai'; \
 	LOG_LEVEL=fatal $(GOTEST) -cover $(PACKAGES)
 
-CURDIR := $(shell pwd)
+CURDIR := $(shell echo $$pwd.Path)
+#CURDIR := "C:\Users\zhanghow\code\tinykv"
 export PATH := $(CURDIR)/bin/:$(PATH)
 proto:
 	mkdir -p $(CURDIR)/bin
