@@ -37,19 +37,12 @@ type RaftLog struct {
 	// Invariant: applied <= committed
 	applied uint64
 
-	// log entries with index <= stabled are persisted to storage.
-	// It is used to record the logs that are not persisted by storage yet.
-	// Everytime handling `Ready`, the unstabled logs will be included.
-	stabled uint64
-
-	// all entries that have not yet compact.
+	// unstable entries
 	entries []pb.Entry
 
 	// the incoming unstable snapshot, if any.
 	// (Used in 2C)
 	pendingSnapshot *pb.Snapshot
-
-	// Your Data Here (2A).
 }
 
 // newLog returns log using the given storage. It recovers the log
@@ -57,6 +50,35 @@ type RaftLog struct {
 func newLog(storage Storage) *RaftLog {
 	// Your Code Here (2A).
 	return nil
+}
+
+// log entries with index <= stabled are persisted to storage.
+func (l *RaftLog) stabled() uint64 {
+	if len(l.entries) > 0 {
+		return l.entries[0].Index - 1
+	}
+	s, err := l.storage.LastIndex()
+	if err != nil {
+		panic(err)
+	}
+	return s
+}
+
+func (l *RaftLog) Entries(lo uint64) ([]*pb.Entry, error) {
+	var ents []pb.Entry
+	var err error
+	if lo <= l.stabled() {
+		ents, err = l.storage.Entries(lo, l.stabled()+1)
+	}
+	if err != nil {
+		return nil, err
+	}
+	ents = append(ents, l.entries...)
+	var ret []*pb.Entry
+	for i := range ents {
+		ret = append(ret, &ents[i])
+	}
+	return ret, nil
 }
 
 // We need to compact the log entries in some point of time like
@@ -80,14 +102,29 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
-	// Your Code Here (2A).
-	return 0
+	unstable := len(l.entries)
+	if unstable > 0 {
+		return l.entries[unstable-1].Index
+	}
+	last, err := l.storage.LastIndex()
+	if err != nil {
+		panic(err)
+	}
+	return last
 }
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
-	// Your Code Here (2A).
-	return 0, nil
+	stabled := l.stabled()
+	if i <= stabled {
+		return l.storage.Term(i)
+	}
+	i -= stabled
+	i -= 1
+	if i >= uint64(len(l.entries)) {
+		return 0, ErrUnavailable
+	}
+	return l.entries[i].Term, nil
 }
 
 func (l *RaftLog) NewerThan(term, idx uint64) bool {
