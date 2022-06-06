@@ -69,13 +69,15 @@ type Ready struct {
 // RawNode is a wrapper of Raft.
 type RawNode struct {
 	Raft *Raft
-	// Your Data Here (2A).
+	hs   pb.HardState
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
 func NewRawNode(config *Config) (*RawNode, error) {
-	// Your Code Here (2A).
-	return nil, nil
+	rn := &RawNode{}
+	rn.Raft = newRaft(config)
+	rn.hs = *rn.Raft.hardState()
+	return rn, nil
 }
 
 // Tick advances the internal logical clock by a single tick.
@@ -142,20 +144,19 @@ func (rn *RawNode) Step(m pb.Message) error {
 
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
-	// Your Code Here (2A).
-	return Ready{}
+	return rn.Raft.ready()
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
 func (rn *RawNode) HasReady() bool {
-	// Your Code Here (2A).
-	return false
+	return rn.Raft.hasReady(rn.hs)
 }
 
 // Advance notifies the RawNode that the application has applied and saved progress in the
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
-	// Your Code Here (2A).
+	rn.hs = rd.HardState
+	rn.Raft.advance(rd)
 }
 
 // GetProgress return the Progress of this node and its peers, if this

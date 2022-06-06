@@ -618,9 +618,46 @@ func (r *Raft) voteNum() (n int) {
 	return
 }
 
+func (r *Raft) ready() Ready {
+	rd := Ready{
+		SoftState: &SoftState{
+			Lead:      r.Lead,
+			RaftState: r.State,
+		},
+		HardState:        *r.hardState(),
+		Entries:          r.RaftLog.unstableEntries(),
+		CommittedEntries: r.RaftLog.nextEnts(),
+		Messages:         r.msgs,
+	}
+	r.msgs = nil
+	return rd
+}
+
+func (r *Raft) hasReady(hs pb.HardState) bool {
+	return len(r.msgs) > 0 || r.RaftLog.committed > r.RaftLog.applied ||
+		hs.Term != r.Term || hs.Commit != r.RaftLog.committed || hs.Vote != r.Vote
+}
+
+func (r *Raft) hardState() *pb.HardState {
+	return &pb.HardState{
+		Term:   r.Term,
+		Vote:   r.Vote,
+		Commit: r.RaftLog.committed,
+	}
+}
+
 // handleSnapshot handle Snapshot RPC request
 func (r *Raft) handleSnapshot(m pb.Message) {
 	// Your Code Here (2C).
+}
+
+func (r *Raft) advance(rd Ready) {
+	if len(rd.Entries) > 0 {
+		r.RaftLog.stabled = rd.Entries[0].Index
+	}
+	if len(rd.CommittedEntries) > 0 {
+		r.RaftLog.applied = rd.CommittedEntries[0].Index
+	}
 }
 
 // addNode add a new node to raft group
