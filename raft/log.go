@@ -14,7 +14,11 @@
 
 package raft
 
-import pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+import (
+	"fmt"
+
+	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+)
 
 // RaftLog manage the log entries, its struct look like:
 //
@@ -36,8 +40,8 @@ type RaftLog struct {
 	// been instructed to apply to its state machine.
 	// Invariant: applied <= committed
 	applied uint64
-
-	// unstable entries
+	// log entries with index <= stabled are persisted to storage.
+	stabled uint64
 	entries []pb.Entry
 
 	// the incoming unstable snapshot, if any.
@@ -48,37 +52,44 @@ type RaftLog struct {
 // newLog returns log using the given storage. It recovers the log
 // to the state that it just commits and applies the latest snapshot.
 func newLog(storage Storage) *RaftLog {
-	// Your Code Here (2A).
-	return nil
-}
-
-// log entries with index <= stabled are persisted to storage.
-func (l *RaftLog) stabled() uint64 {
-	if len(l.entries) > 0 {
-		return l.entries[0].Index - 1
-	}
-	s, err := l.storage.LastIndex()
+	hs, _, err := storage.InitialState()
 	if err != nil {
 		panic(err)
 	}
-	return s
+	lg := &RaftLog{
+		storage:   storage,
+		committed: hs.Commit,
+	}
+	first, err := storage.FirstIndex()
+	if err != nil {
+		panic(err)
+	}
+	last, err := storage.LastIndex()
+	if err != nil {
+		panic(err)
+	}
+	ents, err := storage.Entries(first, last+1)
+	if err != nil {
+		panic(err)
+	}
+	lg.entries = ents
+	lg.stabled = last
+	return lg
 }
 
-func (l *RaftLog) Entries(lo uint64) ([]*pb.Entry, error) {
-	var ents []pb.Entry
-	var err error
-	if lo <= l.stabled() {
-		ents, err = l.storage.Entries(lo, l.stabled()+1)
+func (l *RaftLog) Entries(lo, hi uint64) (ents []pb.Entry, err error) {
+	if len(l.entries) == 0 {
+		return nil, ErrCompacted
 	}
-	if err != nil {
-		return nil, err
+	offset := l.entries[0].Index
+	if lo < offset {
+		return nil, ErrCompacted
 	}
-	ents = append(ents, l.entries...)
-	var ret []*pb.Entry
-	for i := range ents {
-		ret = append(ret, &ents[i])
-	}
-	return ret, nil
+	lo -= offset
+	hi -= offset
+	cp := make([]pb.Entry, hi-lo)
+	copy(cp, l.entries[lo:hi])
+	return cp, nil
 }
 
 // We need to compact the log entries in some point of time like
@@ -88,23 +99,37 @@ func (l *RaftLog) maybeCompact() {
 	// Your Code Here (2C).
 }
 
-// unstableEntries return all the unstable entries
-func (l *RaftLog) unstableEntries() []pb.Entry {
-	// Your Code Here (2A).
-	return nil
-}
-
 // nextEnts returns all the committed but not applied entries
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
-	// Your Code Here (2A).
-	return nil
+	if l.applied == l.committed {
+		return nil
+	}
+	var err error
+	ents, err = l.Entries(l.applied+1, l.committed+1)
+	if err != nil {
+		panic(fmt.Sprintf("app=%d,cmt=%d,err=%v,ents=%+v", l.applied, l.committed, err, l.entries))
+	}
+	return
+}
+
+func (l *RaftLog) unstableEntries() []pb.Entry {
+	if len(l.entries) == 0 {
+		return []pb.Entry{}
+	}
+	offset := l.entries[0].Index
+	uns := l.entries[l.stabled-offset+1:]
+	if len(uns) == 0 {
+		return []pb.Entry{}
+	}
+	cp := make([]pb.Entry, len(uns))
+	copy(cp, uns)
+	return uns
 }
 
 // LastIndex return the last index of the log entries
 func (l *RaftLog) LastIndex() uint64 {
-	unstable := len(l.entries)
-	if unstable > 0 {
-		return l.entries[unstable-1].Index
+	if len(l.entries) > 0 {
+		return l.entries[len(l.entries)-1].Index
 	}
 	last, err := l.storage.LastIndex()
 	if err != nil {
@@ -113,14 +138,24 @@ func (l *RaftLog) LastIndex() uint64 {
 	return last
 }
 
+func (l *RaftLog) LastEntry() (t, i uint64) {
+	i = l.LastIndex()
+	if i <= 0 {
+		return 0, 0
+	}
+	t, err := l.Term(i)
+	if err != nil {
+		panic(err)
+	}
+	return
+}
+
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
-	stabled := l.stabled()
-	if i <= stabled {
+	if len(l.entries) == 0 || i < l.entries[0].Index {
 		return l.storage.Term(i)
 	}
-	i -= stabled
-	i -= 1
+	i -= l.entries[0].Index
 	if i >= uint64(len(l.entries)) {
 		return 0, ErrUnavailable
 	}
@@ -128,10 +163,6 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 }
 
 func (l *RaftLog) NewerThan(term, idx uint64) bool {
-	li := l.LastIndex()
-	lt, err := l.Term(li)
-	if err != nil {
-		panic(err)
-	}
+	lt, li := l.LastEntry()
 	return lt > term || (lt == term && li > idx)
 }

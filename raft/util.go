@@ -76,7 +76,7 @@ func diffu(a, b string) string {
 	aname, bname := mustTemp("base", a), mustTemp("other", b)
 	defer os.Remove(aname)
 	defer os.Remove(bname)
-	cmd := exec.Command("diff", "-u", aname, bname)
+	cmd := exec.Command("FC", aname, bname)
 	buf, err := cmd.CombinedOutput()
 	if err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
@@ -116,14 +116,31 @@ func (p uint64Slice) Len() int           { return len(p) }
 func (p uint64Slice) Less(i, j int) bool { return p[i] < p[j] }
 func (p uint64Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func IsLocalMsg(msgt pb.MessageType) bool {
-	return msgt == pb.MessageType_MsgHup || msgt == pb.MessageType_MsgBeat
+var IsResponseMsg = map[pb.MessageType]bool{
+	pb.MessageType_MsgAppendResponse:      true,
+	pb.MessageType_MsgRequestVoteResponse: true,
+	pb.MessageType_MsgHeartbeatResponse:   true,
 }
 
-func IsResponseMsg(msgt pb.MessageType) bool {
-	return msgt == pb.MessageType_MsgAppendResponse || msgt == pb.MessageType_MsgRequestVoteResponse || msgt == pb.MessageType_MsgHeartbeatResponse
+var IsLocalMsg = map[pb.MessageType]bool{
+	pb.MessageType_MsgHup:     true,
+	pb.MessageType_MsgBeat:    true,
+	pb.MessageType_MsgPropose: true,
+}
+
+var RespMsgOf = map[pb.MessageType]pb.MessageType{
+	pb.MessageType_MsgAppend:      pb.MessageType_MsgAppendResponse,
+	pb.MessageType_MsgRequestVote: pb.MessageType_MsgRequestVoteResponse,
+	pb.MessageType_MsgHeartbeat:   pb.MessageType_MsgHeartbeatResponse,
 }
 
 func isHardStateEqual(a, b pb.HardState) bool {
 	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
+}
+
+func PEntries(ents []pb.Entry) (pents []*pb.Entry) {
+	for i := range ents {
+		pents = append(pents, &ents[i])
+	}
+	return
 }

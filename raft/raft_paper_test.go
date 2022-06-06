@@ -749,6 +749,8 @@ func TestLeaderSyncFollowerLog2AB(t *testing.T) {
 		n.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
 
 		if g := diffu(ltoa(lead.RaftLog), ltoa(follower.RaftLog)); g != "" {
+			// fmt.Println("leaderLog", ltoa(lead.RaftLog))
+			// fmt.Println("followerLog", ltoa(follower.RaftLog))
 			t.Errorf("#%d: log diff:\n%s", i, g)
 		}
 	}
@@ -874,6 +876,7 @@ func TestLeaderOnlyCommitsLogFromCurrentTerm2AB(t *testing.T) {
 		// propose a entry to current term
 		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
 
+		// log.Infof("@@@1 %s :commited=%d, prs=%s", r, r.RaftLog.committed, r.PrsStr())
 		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppendResponse, Term: r.Term, Index: tt.index})
 		if r.RaftLog.committed != tt.wcommit {
 			t.Errorf("#%d: commit = %d, want %d", i, r.RaftLog.committed, tt.wcommit)
