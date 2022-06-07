@@ -145,6 +145,7 @@ type Raft struct {
 	campaignAfter    int
 	// tick advances the internal logical clock by a single tick.
 	tick func()
+	step func(pb.Message) error
 
 	// leadTransferee is id of the leader transfer target when its value is not zero.
 	// Follow the procedure defined in section 3.10 of Raft phd thesis.
@@ -264,9 +265,6 @@ func (r *Raft) tickLeader() {
 }
 
 func (r *Raft) bcastHeartbeat() {
-	if r.State != StateLeader {
-		return
-	}
 	for id := range r.Prs {
 		if id == r.id {
 			continue
@@ -281,14 +279,16 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.Term = term
 	r.Lead = lead
 	r.campaignAfter = r.randTimeout()
-	r.tick = r.tickNormal
 	r.Vote = None
+	r.tick = r.tickNormal
+	r.step = r.stepFollower
 }
 
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	r.Term++
 	r.State = StateCandidate
+	r.step = r.stepCandidate
 }
 
 func (r *Raft) requestVotes() {
@@ -320,6 +320,7 @@ func (r *Raft) requestVotes() {
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	r.tick = r.tickLeader
+	r.step = r.stepLeader
 	r.State = StateLeader
 	r.Lead = r.id
 	next := r.RaftLog.LastIndex() + 1
@@ -357,35 +358,59 @@ func (r *Raft) Step(m pb.Message) error {
 			}
 		}
 	}
+	return r.step(m)
+}
 
+func (r *Raft) stepFollower(m pb.Message) error {
 	switch m.MsgType {
 	case pb.MessageType_MsgHup:
-		if r.State == StateLeader {
-			break
-		}
 		r.becomeCandidate()
 		r.requestVotes()
-	case pb.MessageType_MsgBeat:
-		r.bcastHeartbeat()
-	case pb.MessageType_MsgPropose:
-		if r.State != StateLeader {
-			return ErrStepLocalMsg
-		}
-		r.handlePropse(m)
 	case pb.MessageType_MsgHeartbeat:
 		r.handleHeartbeat(m)
-	case pb.MessageType_MsgHeartbeatResponse:
-		r.handleHeartBeatResp(m)
+	case pb.MessageType_MsgRequestVote:
+		r.handleRequestVote(m)
+	case pb.MessageType_MsgAppend:
+		r.handleAppendEntries(m)
+	default:
+		log.Errorf("%s can not handle MessageType=%v", r, m.MsgType)
+	}
+	return nil
+}
+
+func (r *Raft) stepCandidate(m pb.Message) error {
+	switch m.MsgType {
+	case pb.MessageType_MsgHup:
+		r.becomeCandidate()
+		r.requestVotes()
+	case pb.MessageType_MsgHeartbeat:
+		r.handleHeartbeat(m)
 	case pb.MessageType_MsgRequestVote:
 		r.handleRequestVote(m)
 	case pb.MessageType_MsgRequestVoteResponse:
 		r.handleRequestVoteResp(m)
 	case pb.MessageType_MsgAppend:
 		r.handleAppendEntries(m)
+	default:
+		log.Errorf("%s can not handle MessageType=%v", r, m.MsgType)
+	}
+	return nil
+}
+
+func (r *Raft) stepLeader(m pb.Message) error {
+	switch m.MsgType {
+	case pb.MessageType_MsgBeat:
+		r.bcastHeartbeat()
+	case pb.MessageType_MsgHeartbeatResponse:
+		r.handleHeartBeatResp(m)
+	case pb.MessageType_MsgPropose:
+		r.handlePropse(m)
 	case pb.MessageType_MsgAppendResponse:
 		r.handleAppendResp(m)
+	case pb.MessageType_MsgRequestVoteResponse:
+		// just ignore
 	default:
-		log.Errorf("can not handle MessageType=%v", m.MsgType)
+		log.Warnf("%s can not handle MessageType=%v", r, m.MsgType)
 	}
 	return nil
 }
@@ -429,10 +454,11 @@ func (r *Raft) onReceiveOldTerm(m pb.Message) {
 
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
-	if r.State != StateFollower {
+	if r.State == StateFollower {
+		r.Lead = m.From
+	} else {
 		r.becomeFollower(m.Term, m.From)
 	}
-	r.Lead = m.From
 	resp := &pb.Message{
 		MsgType: pb.MessageType_MsgAppendResponse,
 	}
@@ -499,9 +525,6 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 }
 
 func (r *Raft) handleAppendResp(resp pb.Message) {
-	if r.State != StateLeader {
-		return
-	}
 	prs := r.Prs[resp.From]
 	if !resp.Reject {
 		if resp.Index > prs.Match {
@@ -567,7 +590,11 @@ func (r *Raft) sendMsg(to uint64, m *pb.Message) {
 
 // handleHeartbeat handle Heartbeat RPC request
 func (r *Raft) handleHeartbeat(m pb.Message) {
-	r.Lead = m.From
+	if r.State == StateFollower {
+		r.Lead = m.From
+	} else {
+		r.becomeFollower(m.Term, m.From)
+	}
 	r.campaignAfter = r.randTimeout()
 	resp := &pb.Message{
 		MsgType: pb.MessageType_MsgHeartbeatResponse,
@@ -598,9 +625,6 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 }
 
 func (r *Raft) handleRequestVoteResp(m pb.Message) {
-	if r.State != StateCandidate {
-		return
-	}
 	r.votes[m.From] = !m.Reject
 	n := r.voteNum()
 	if n > len(r.Prs)/2 {

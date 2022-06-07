@@ -963,6 +963,14 @@ func TestRecvMessageType_MsgBeat2AA(t *testing.T) {
 		sm.RaftLog = newLog(newMemoryStorageWithEnts([]pb.Entry{{}, {Index: 1, Term: 0}, {Index: 2, Term: 1}}))
 		sm.Term = 1
 		sm.State = tt.state
+		switch sm.State {
+		case StateFollower:
+			sm.step = sm.stepFollower
+		case StateCandidate:
+			sm.step = sm.stepCandidate
+		case StateLeader:
+			sm.step = sm.stepLeader
+		}
 		sm.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgBeat})
 
 		msgs := sm.readMessages()
