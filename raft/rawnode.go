@@ -69,14 +69,20 @@ type Ready struct {
 // RawNode is a wrapper of Raft.
 type RawNode struct {
 	Raft *Raft
-	hs   pb.HardState
+	soft SoftState
+	hard pb.HardState
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
 func NewRawNode(config *Config) (*RawNode, error) {
+	rf := newRaft(config)
 	rn := &RawNode{}
-	rn.Raft = newRaft(config)
-	rn.hs = *rn.Raft.hardState()
+	rn.Raft = rf
+	rn.hard = rf.hardState()
+	rn.soft = SoftState{
+		Lead:      rf.Lead,
+		RaftState: rf.State,
+	}
 	return rn, nil
 }
 
@@ -144,18 +150,41 @@ func (rn *RawNode) Step(m pb.Message) error {
 
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
-	return rn.Raft.ready()
+	rd := rn.Raft.ready()
+	if rn.isDirtySoft() {
+		rd.SoftState = &SoftState{
+			Lead:      rn.Raft.Lead,
+			RaftState: rn.Raft.State,
+		}
+	}
+	if rn.isDirtyHard() {
+		rd.HardState = rn.Raft.hardState()
+	}
+	return rd
+}
+
+func (rn *RawNode) isDirtySoft() bool {
+	return rn.soft.Lead != rn.Raft.Lead || rn.soft.RaftState != rn.Raft.State
+}
+
+func (rn *RawNode) isDirtyHard() bool {
+	return rn.hard.Term != rn.Raft.Term || rn.hard.Commit != rn.Raft.RaftLog.committed || rn.hard.Vote != rn.Raft.Vote
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
 func (rn *RawNode) HasReady() bool {
-	return rn.Raft.hasReady(rn.hs)
+	return rn.Raft.hasReady(rn.hard)
 }
 
 // Advance notifies the RawNode that the application has applied and saved progress in the
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
-	rn.hs = rd.HardState
+	if rd.SoftState != nil {
+		rn.soft = *rd.SoftState
+	}
+	if rd.HardState.Term > 0 {
+		rn.hard = rd.HardState
+	}
 	rn.Raft.advance(rd)
 }
 

@@ -620,11 +620,6 @@ func (r *Raft) voteNum() (n int) {
 
 func (r *Raft) ready() Ready {
 	rd := Ready{
-		SoftState: &SoftState{
-			Lead:      r.Lead,
-			RaftState: r.State,
-		},
-		HardState:        *r.hardState(),
 		Entries:          r.RaftLog.unstableEntries(),
 		CommittedEntries: r.RaftLog.nextEnts(),
 		Messages:         r.msgs,
@@ -638,8 +633,8 @@ func (r *Raft) hasReady(hs pb.HardState) bool {
 		hs.Term != r.Term || hs.Commit != r.RaftLog.committed || hs.Vote != r.Vote
 }
 
-func (r *Raft) hardState() *pb.HardState {
-	return &pb.HardState{
+func (r *Raft) hardState() pb.HardState {
+	return pb.HardState{
 		Term:   r.Term,
 		Vote:   r.Vote,
 		Commit: r.RaftLog.committed,
