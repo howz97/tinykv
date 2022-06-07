@@ -234,8 +234,7 @@ func (r *Raft) sendAppend(to uint64) bool {
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
 func (r *Raft) sendHeartbeat(to uint64) {
-	lt, li := r.RaftLog.LastEntry()
-	m := &pb.Message{MsgType: pb.MessageType_MsgHeartbeat, LogTerm: lt, Index: li}
+	m := &pb.Message{MsgType: pb.MessageType_MsgHeartbeat}
 	r.sendMsg(to, m)
 }
 
@@ -361,6 +360,9 @@ func (r *Raft) Step(m pb.Message) error {
 
 	switch m.MsgType {
 	case pb.MessageType_MsgHup:
+		if r.State == StateLeader {
+			break
+		}
 		r.becomeCandidate()
 		r.requestVotes()
 	case pb.MessageType_MsgBeat:
@@ -570,13 +572,12 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	resp := &pb.Message{
 		MsgType: pb.MessageType_MsgHeartbeatResponse,
 	}
-	lt, err := r.RaftLog.Term(m.Index)
-	resp.Reject = (err != nil || lt != m.LogTerm)
+	resp.Term, resp.Index = r.RaftLog.LastEntry()
 	r.sendMsg(m.From, resp)
 }
 
 func (r *Raft) handleHeartBeatResp(m pb.Message) {
-	if m.Reject {
+	if r.RaftLog.NewerThan(m.LogTerm, m.Index) {
 		r.sendAppend(m.From)
 	}
 }
