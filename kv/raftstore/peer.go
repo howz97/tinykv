@@ -232,6 +232,16 @@ func (p *peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 	return nil
 }
 
+func (p *peer) takeProposal(t, i uint64) *message.Callback {
+	for j, pp := range p.proposals {
+		if pp.term == t && pp.index == i {
+			p.proposals = append(p.proposals[:j], p.proposals[j+1:]...)
+			return pp.cb
+		}
+	}
+	return nil
+}
+
 func (p *peer) isInitialized() bool {
 	return p.peerStorage.isInitialized()
 }

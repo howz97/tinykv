@@ -673,10 +673,10 @@ func (r *Raft) handleSnapshot(m pb.Message) {
 
 func (r *Raft) advance(rd Ready) {
 	if len(rd.Entries) > 0 {
-		r.RaftLog.stabled = rd.Entries[0].Index
+		r.RaftLog.stabled = rd.Entries[len(rd.Entries)-1].Index
 	}
 	if len(rd.CommittedEntries) > 0 {
-		r.RaftLog.applied = rd.CommittedEntries[0].Index
+		r.RaftLog.applied = rd.CommittedEntries[len(rd.CommittedEntries)-1].Index
 	}
 }
 

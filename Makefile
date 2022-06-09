@@ -1,4 +1,5 @@
-SHELL := powershell.exe
+SHELL := git-bash.exe
+# SHELL := powershell.exe
 PROJECT=tinykv
 GOPATH ?= $(shell go env GOPATH)
 
@@ -10,7 +11,7 @@ endif
 GO                  := go
 GOBUILD             := $(GO) build $(BUILD_FLAG) -tags codes
 GOTEST              := $(GO) test -v --count=1 --parallel=1 -p=1
-TEST_CLEAN          := rm -rf /tmp/*test-raftstore*
+TEST_CLEAN          := rm /tmp/*test-raftstore*
 
 TEST_LDFLAGS        := ""
 
@@ -29,7 +30,8 @@ test:
 	@export TZ='Asia/Shanghai'; \
 	LOG_LEVEL=fatal $(GOTEST) -cover $(PACKAGES)
 
-CURDIR := $(shell echo $$pwd.Path)
+# CURDIR := $(shell echo $$pwd.Path)
+CURDIR := $(shell pwd)
 #CURDIR := "C:\Users\zhanghow\code\tinykv"
 export PATH := $(CURDIR)/bin/:$(PATH)
 proto:

@@ -66,6 +66,14 @@ type Ready struct {
 	Messages []pb.Message
 }
 
+func (rd *Ready) IsEmptySnap() bool {
+	return IsEmptySnap(&rd.Snapshot)
+}
+
+func (rd *Ready) IsEmptyHardState() bool {
+	return IsEmptyHardState(rd.HardState)
+}
+
 // RawNode is a wrapper of Raft.
 type RawNode struct {
 	Raft *Raft
