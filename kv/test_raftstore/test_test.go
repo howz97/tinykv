@@ -194,7 +194,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		clnts[i] = make(chan int, 1)
 	}
 	for i := 0; i < 3; i++ {
-		// log.Printf("Iteration %v\n", i)
+		log.Debugf("Iteration %v\n", i)
 		atomic.StoreInt32(&done_clients, 0)
 		atomic.StoreInt32(&done_partitioner, 0)
 		go SpawnClientsAndWait(t, ch_clients, nclients, func(cli int, t *testing.T) {
@@ -207,14 +207,14 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 				if (rand.Int() % 1000) < 500 {
 					key := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", j)
 					value := "x " + strconv.Itoa(cli) + " " + strconv.Itoa(j) + " y"
-					// log.Infof("%d: client new put %v,%v\n", cli, key, value)
+					log.Infof("%d: client new put %v,%v\n", cli, key, value)
 					cluster.MustPut([]byte(key), []byte(value))
 					last = NextValue(last, value)
 					j++
 				} else {
 					start := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", 0)
 					end := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", j)
-					// log.Infof("%d: client new scan %v-%v\n", cli, start, end)
+					log.Infof("%d: client new scan %v-%v\n", cli, start, end)
 					values := cluster.Scan([]byte(start), []byte(end))
 					v := string(bytes.Join(values, []byte("")))
 					if v != last {
@@ -250,7 +250,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			time.Sleep(electionTimeout)
 		}
 
-		// log.Printf("wait for clients\n")
+		log.Debugf("wait for clients\n")
 		<-ch_clients
 
 		if crash {
@@ -331,6 +331,8 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 
 func TestBasic2B(t *testing.T) {
 	// Test: one client (2B) ...
+	log.SetLevel(log.LOG_LEVEL_DEBUG)
+	log.Debugf("test start...")
 	GenericTest(t, "2B", 1, false, false, false, -1, false, false)
 }
 
@@ -373,10 +375,15 @@ func TestOnePartition2B(t *testing.T) {
 		s1: s1,
 		s2: s2,
 	})
+	log.Infof("TestOnePartition2B before: Put k1:v1")
 	cluster.MustPut([]byte("k1"), []byte("v1"))
+	log.Infof("TestOnePartition2B after: Put k1:v1")
 	cluster.MustGet([]byte("k1"), []byte("v1"))
+	log.Infof("TestOnePartition2B after: Get k1:v1")
 	MustGetNone(cluster.engines[s2[0]], []byte("k1"))
+	log.Infof("TestOnePartition2B after Get k1:None from s2[0]=%d", s2[0])
 	MustGetNone(cluster.engines[s2[1]], []byte("k1"))
+	log.Infof("TestOnePartition2B after Get k1:None from s2[1]=%d", s2[1])
 	cluster.ClearFilters()
 
 	// old leader in minority, new leader should be elected
@@ -386,14 +393,21 @@ func TestOnePartition2B(t *testing.T) {
 		s1: s1,
 		s2: s2,
 	})
+	log.Infof("TestOnePartition2B old leader in minority, new leader should be elected s1=%v,s2=%v", s1, s2)
 	cluster.MustGet([]byte("k1"), []byte("v1"))
+	log.Infof("TestOnePartition2B after: Get k1:v1")
 	cluster.MustPut([]byte("k1"), []byte("changed"))
+	log.Infof("TestOnePartition2B after: Put k1:changed")
 	MustGetEqual(cluster.engines[s1[0]], []byte("k1"), []byte("v1"))
+	log.Infof("TestOnePartition2B after: Get s1[0] k1:v1")
 	MustGetEqual(cluster.engines[s1[1]], []byte("k1"), []byte("v1"))
+	log.Infof("TestOnePartition2B after: Get s1[1] k1:v1")
 	cluster.ClearFilters()
 
 	// when partition heals, old leader should sync data
+	log.Infof("TestOnePartition2B partition heals")
 	cluster.MustPut([]byte("k2"), []byte("v2"))
+	log.Infof("TestOnePartition2B after: Put k2:v2")
 	MustGetEqual(cluster.engines[s1[0]], []byte("k2"), []byte("v2"))
 	MustGetEqual(cluster.engines[s1[0]], []byte("k1"), []byte("changed"))
 }

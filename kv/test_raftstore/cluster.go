@@ -232,6 +232,7 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 				leader = peers[rand.Int()%len(peers)]
 				log.Debugf("leader info maybe wrong, use random leader %d of region %d", leader.GetId(), regionID)
 			} else {
+				log.Debugf("client change leader from %v to %v", leader, newLeader)
 				leader = newLeader
 				log.Debugf("use new leader %d of region %d", leader.GetId(), regionID)
 			}
@@ -243,6 +244,7 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 				log.Debugf("encouter retryable err %+v", resp)
 				if err.GetNotLeader() != nil && err.GetNotLeader().Leader != nil {
 					leader = err.GetNotLeader().Leader
+					log.Debugf("retry on leader peer=%d,%d", leader.Id, leader.StoreId)
 				} else {
 					leader = c.LeaderOfRegion(regionID)
 				}
@@ -352,7 +354,8 @@ func (c *Cluster) MustDeleteCF(cf string, key []byte) {
 		panic("len(resp.Responses) != 1")
 	}
 	if resp.Responses[0].CmdType != raft_cmdpb.CmdType_Delete {
-		panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Delete")
+		log.Errorf("resp.Responses[0].CmdType=%v", resp.Responses[0].CmdType)
+		log.Panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Delete")
 	}
 }
 

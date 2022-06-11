@@ -49,16 +49,29 @@ func (d *peerMsgHandler) HandleRaftReady() {
 	rd := d.peer.RaftGroup.Ready()
 	d.peer.peerStorage.SaveReadyState(&rd)
 	for _, ent := range rd.CommittedEntries {
+		if len(ent.Data) == 0 {
+			continue
+		}
 		reqs := new(raft_cmdpb.RaftCmdRequest)
 		err := reqs.Unmarshal(ent.Data)
 		if err != nil {
 			panic(err)
 		}
 		resp, err := d.process(reqs)
+		if !d.IsLeader() {
+			continue
+		}
 		cb := d.takeProposal(ent.Term, ent.Index)
+		if cb == nil {
+			log.Warnf("peer %d do not have callback of (t%d,i%d)", d.PeerId(), ent.Term, ent.Index)
+			continue
+		}
 		if err != nil {
 			cb.Done(ErrResp(err))
 			continue
+		}
+		if len(resp.Responses) > 0 && resp.Responses[0].CmdType == raft_cmdpb.CmdType_Snap {
+			cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
 		}
 		cb.Done(resp)
 	}
@@ -94,9 +107,18 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.R
 				return nil, err
 			}
 			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
-				CmdType: raft_cmdpb.CmdType_Put,
+				CmdType: raft_cmdpb.CmdType_Delete,
 				Delete:  r,
 			})
+		case raft_cmdpb.CmdType_Snap:
+			r := new(raft_cmdpb.SnapResponse)
+			r.Region = d.peerStorage.region // fixme: data race ?
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Snap,
+				Snap:    r,
+			})
+		default:
+			panic("unknown CmdType")
 		}
 	}
 	return resp, nil
@@ -202,11 +224,13 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		cb.Done(ErrResp(err))
 	}
 	lt, li := d.RaftGroup.Raft.RaftLog.LastEntry()
-	d.proposals = append(d.proposals, &proposal{
+	pp := &proposal{
 		index: li,
 		term:  lt,
 		cb:    cb,
-	})
+	}
+	d.proposals = append(d.proposals, pp)
+	log.Debugf("proposeRaftCommand=%s, proposals=%s", pp, d.proposalStr())
 }
 
 func (d *peerMsgHandler) onTick() {
@@ -303,7 +327,7 @@ func (d *peerMsgHandler) validateRaftMessage(msg *rspb.RaftMessage) bool {
 	regionID := msg.GetRegionId()
 	from := msg.GetFromPeer()
 	to := msg.GetToPeer()
-	log.Debugf("[region %d] handle raft message %s from %d to %d", regionID, msg, from.GetId(), to.GetId())
+	log.Debugf("[region %d] handle raft message %s from %d to %d", regionID, msg.Message.MsgType, from.GetId(), to.GetId())
 	if to.GetStoreId() != d.storeID() {
 		log.Warnf("[region %d] store not match, to store id %d, mine %d, ignore it",
 			regionID, to.GetStoreId(), d.storeID())

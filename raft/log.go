@@ -77,6 +77,28 @@ func newLog(storage Storage) *RaftLog {
 	return lg
 }
 
+func (l *RaftLog) String() string {
+	f := func(e pb.Entry) string {
+		return fmt.Sprintf("(t%d.i%d)", e.Term, e.Index)
+	}
+	ents := ""
+	leng := len(l.entries)
+	switch leng {
+	case 0:
+	case 1:
+		ents += f(l.entries[0])
+	case 2:
+		ents += f(l.entries[0])
+		ents += f(l.entries[1])
+	default:
+		ents += f(l.entries[0])
+		ents += ".."
+		ents += f(l.entries[leng-1])
+	}
+	return fmt.Sprintf("{%dents=%s,app=%d,cmt=%d}",
+		len(l.entries), ents, l.applied, l.committed)
+}
+
 func (l *RaftLog) Entries(lo, hi uint64) (ents []pb.Entry, err error) {
 	if len(l.entries) == 0 {
 		return nil, ErrCompacted
@@ -107,7 +129,9 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	var err error
 	ents, err = l.Entries(l.applied+1, l.committed+1)
 	if err != nil {
-		panic(fmt.Sprintf("app=%d,cmt=%d,err=%v,ents=%+v", l.applied, l.committed, err, l.entries))
+		f, err2 := l.storage.FirstIndex()
+		panic(fmt.Sprintf("first=%d,app=%d,cmt=%d,err=%v,ents=%+v,err2=%v",
+			f, l.applied, l.committed, err, l.entries, err2))
 	}
 	return
 }

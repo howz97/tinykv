@@ -63,6 +63,10 @@ type proposal struct {
 	cb    *message.Callback
 }
 
+func (p *proposal) String() string {
+	return fmt.Sprintf("(t%d,i%d)", p.term, p.index)
+}
+
 type peer struct {
 	// The ticker of the peer, used to trigger
 	// * raft tick
@@ -242,6 +246,15 @@ func (p *peer) takeProposal(t, i uint64) *message.Callback {
 	return nil
 }
 
+func (p *peer) proposalStr() string {
+	str := "["
+	for _, p := range p.proposals {
+		str += p.String()
+	}
+	str += "]"
+	return str
+}
+
 func (p *peer) isInitialized() bool {
 	return p.peerStorage.isInitialized()
 }
@@ -380,7 +393,7 @@ func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	if toPeer == nil {
 		return fmt.Errorf("failed to lookup recipient peer %v in region %v", msg.To, p.regionId)
 	}
-	log.Debugf("%v, send raft msg %v from %v to %v", p.Tag, msg.MsgType, fromPeer, toPeer)
+	log.Debugf("%v, send raft msg %v from %v to %v", p.Tag, msg.MsgType, &fromPeer, toPeer)
 
 	sendMsg.FromPeer = &fromPeer
 	sendMsg.ToPeer = toPeer

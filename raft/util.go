@@ -128,6 +128,11 @@ var IsLocalMsg = map[pb.MessageType]bool{
 	pb.MessageType_MsgPropose: true,
 }
 
+func RaftNetMsg(t pb.MessageType) bool {
+	return !IsLocalMsg[t]
+}
+
+// Be cautious to add new MessageType
 var RespMsgOf = map[pb.MessageType]pb.MessageType{
 	pb.MessageType_MsgAppend:      pb.MessageType_MsgAppendResponse,
 	pb.MessageType_MsgRequestVote: pb.MessageType_MsgRequestVoteResponse,
@@ -143,4 +148,10 @@ func PEntries(ents []pb.Entry) (pents []*pb.Entry) {
 		pents = append(pents, &ents[i])
 	}
 	return
+}
+
+func CheckErr(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
