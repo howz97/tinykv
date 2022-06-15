@@ -486,13 +486,16 @@ func TestOneSnapshot2C(t *testing.T) {
 	cluster.MustDeleteCF(cf, []byte("k2"))
 	time.Sleep(500 * time.Millisecond)
 	MustGetCfNone(cluster.engines[1], cf, []byte("k100"))
+	log.Infof("TestOneSnapshot2C before ClearFilters")
 	cluster.ClearFilters()
 
+	log.Infof("TestOneSnapshot2C Now snapshot must applied on")
 	// Now snapshot must applied on
 	MustGetCfEqual(cluster.engines[1], cf, []byte("k1"), []byte("v1"))
 	MustGetCfEqual(cluster.engines[1], cf, []byte("k100"), []byte("v100"))
 	MustGetCfNone(cluster.engines[1], cf, []byte("k2"))
 
+	log.Infof("TestOneSnapshot2C before StopServer(1)")
 	cluster.StopServer(1)
 	cluster.StartServer(1)
 

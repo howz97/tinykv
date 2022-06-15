@@ -6,6 +6,7 @@ import (
 
 	"github.com/Connor1996/badger/y"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/runner"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/snap"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
@@ -47,7 +48,11 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		return
 	}
 	rd := d.peer.RaftGroup.Ready()
-	d.peer.peerStorage.SaveReadyState(&rd)
+	_, err := d.peer.peerStorage.SaveReadyState(&rd)
+	if err != nil {
+		log.Errorf("SaveReadyState %v", err)
+		return
+	}
 	for _, ent := range rd.CommittedEntries {
 		if len(ent.Data) == 0 {
 			continue
@@ -81,6 +86,10 @@ func (d *peerMsgHandler) HandleRaftReady() {
 
 func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
 	resp := newCmdResp()
+	if reqs.AdminRequest != nil {
+		resp.AdminResponse = d.processAdmin(reqs.AdminRequest)
+		return resp, nil
+	}
 	for _, req := range reqs.Requests {
 		switch req.CmdType {
 		case raft_cmdpb.CmdType_Get:
@@ -144,6 +153,23 @@ func (d *peerMsgHandler) processDel(req *raft_cmdpb.DeleteRequest) (*raft_cmdpb.
 	resp := new(raft_cmdpb.DeleteResponse)
 	err := engine_util.DeleteCF(d.peer.peerStorage.Engines.Kv, req.Cf, req.Key)
 	return resp, err
+}
+
+func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.AdminResponse {
+	resp := new(raft_cmdpb.AdminResponse)
+	switch req.CmdType {
+	case raft_cmdpb.AdminCmdType_CompactLog:
+		req := req.CompactLog
+		d.peer.peerStorage.applyState.TruncatedState.Index = req.CompactIndex
+		d.peer.peerStorage.applyState.TruncatedState.Term = req.CompactTerm
+		err := engine_util.PutMeta(d.peerStorage.Engines.Kv, meta.ApplyStateKey(d.regionId), d.peer.peerStorage.applyState)
+		if err != nil {
+			log.Panicf("%v", err)
+		}
+		d.ScheduleCompactLog(req.CompactIndex)
+		resp.CompactLog = new(raft_cmdpb.CompactLogResponse)
+	}
+	return resp
 }
 
 func (d *peerMsgHandler) HandleMsg(msg message.Msg) {
@@ -223,6 +249,9 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 	if err != nil {
 		cb.Done(ErrResp(err))
 	}
+	if cb == nil {
+		return
+	}
 	lt, li := d.RaftGroup.Raft.RaftLog.LastEntry()
 	pp := &proposal{
 		index: li,
@@ -276,6 +305,8 @@ func (d *peerMsgHandler) ScheduleCompactLog(truncatedIndex uint64) {
 	}
 	d.LastCompactedIdx = raftLogGCTask.EndIdx
 	d.ctx.raftLogGCTaskSender <- raftLogGCTask
+	log.Infof("ScheduleCompactLog region=%d, range=[%d, %d)",
+		raftLogGCTask.RegionID, raftLogGCTask.StartIdx, raftLogGCTask.EndIdx)
 }
 
 func (d *peerMsgHandler) onRaftMsg(msg *rspb.RaftMessage) error {
@@ -551,6 +582,8 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 	// Create a compact log request and notify directly.
 	regionID := d.regionId
 	request := newCompactLogRequest(regionID, d.Meta, compactIdx, term)
+	log.Infof("onRaftGCLogTick propose admin command to make snapshot, region=%d, (t%d,i%d)",
+		regionID, term, compactIdx)
 	d.proposeRaftCommand(request, nil)
 }
 

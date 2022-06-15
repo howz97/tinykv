@@ -1063,7 +1063,7 @@ func TestProvideSnap2C(t *testing.T) {
 		},
 	}
 	storage := NewMemoryStorage()
-	sm := newTestRaft(1, []uint64{1}, 10, 1, storage)
+	sm := newTestRaft(1, []uint64{1, 2}, 10, 1, storage)
 	sm.handleSnapshot(pb.Message{Snapshot: &s})
 
 	sm.becomeCandidate()
