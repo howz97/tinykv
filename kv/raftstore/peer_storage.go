@@ -101,7 +101,6 @@ func (ps *PeerStorage) Entries(low, high uint64) ([]eraftpb.Entry, error) {
 	for iter.Seek(startKey); iter.Valid(); iter.Next() {
 		item := iter.Item()
 		if bytes.Compare(item.Key(), endKey) >= 0 {
-			log.Infof("@@@ item.Key() >= endKey length=%d", len(buf))
 			break
 		}
 		val, err := item.Value()
@@ -114,7 +113,6 @@ func (ps *PeerStorage) Entries(low, high uint64) ([]eraftpb.Entry, error) {
 		}
 		// May meet gap or has been compacted.
 		if entry.Index != nextIndex {
-			log.Infof("@@@ entry.Index(%d) != nextIndex(%d), length=%d", entry.Index, nextIndex, len(buf))
 			break
 		}
 		nextIndex++
