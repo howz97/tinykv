@@ -123,9 +123,10 @@ var IsResponseMsg = map[pb.MessageType]bool{
 }
 
 var IsLocalMsg = map[pb.MessageType]bool{
-	pb.MessageType_MsgHup:     true,
-	pb.MessageType_MsgBeat:    true,
-	pb.MessageType_MsgPropose: true,
+	pb.MessageType_MsgHup:            true,
+	pb.MessageType_MsgBeat:           true,
+	pb.MessageType_MsgPropose:        true,
+	pb.MessageType_MsgTransferLeader: true,
 }
 
 func RaftNetMsg(t pb.MessageType) bool {

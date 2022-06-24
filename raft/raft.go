@@ -27,6 +27,8 @@ import (
 // None is a placeholder node ID used when there is no leader.
 const None uint64 = 0
 
+var ErrLeadTransfering = errors.New("leader transfering is in progress")
+
 // StateType represents the role of a node in a cluster.
 type StateType uint64
 
@@ -294,6 +296,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.Vote = None
 	r.tick = r.tickNormal
 	r.step = r.stepFollower
+	r.leadTransferee = None
 	log.Infof("raft state transfer: %s -> %s", bef, r)
 }
 
@@ -303,6 +306,7 @@ func (r *Raft) becomeCandidate() {
 	r.Term++
 	r.State = StateCandidate
 	r.step = r.stepCandidate
+	r.campaignAfter = r.randTimeout()
 	log.Infof("raft state transfer: %s -> %s", bef, r)
 }
 
@@ -399,7 +403,7 @@ func (r *Raft) Step(m pb.Message) error {
 
 func (r *Raft) stepFollower(m pb.Message) error {
 	switch m.MsgType {
-	case pb.MessageType_MsgHup:
+	case pb.MessageType_MsgHup, pb.MessageType_MsgTimeoutNow:
 		r.becomeCandidate()
 		r.requestVotes()
 	case pb.MessageType_MsgHeartbeat:
@@ -431,28 +435,52 @@ func (r *Raft) stepCandidate(m pb.Message) error {
 	return nil
 }
 
-func (r *Raft) stepLeader(m pb.Message) error {
+func (r *Raft) stepLeader(m pb.Message) (err error) {
 	switch m.MsgType {
 	case pb.MessageType_MsgBeat:
 		r.bcastHeartbeat()
 	case pb.MessageType_MsgHeartbeatResponse:
 		r.handleHeartBeatResp(m)
 	case pb.MessageType_MsgPropose:
-		r.handlePropse(m)
+		err = r.handlePropse(m)
 	case pb.MessageType_MsgAppendResponse:
 		r.handleAppendResp(m)
 	case pb.MessageType_MsgRequestVote:
 		r.handleRequestVote(m)
 	case pb.MessageType_MsgRequestVoteResponse:
 		// already be leader
+	case pb.MessageType_MsgTransferLeader:
+		r.handleTransferLeader(m)
 	default:
 		log.Errorf("%s can not handle MessageType=%v from (peer%d,term=%d)",
 			r, m.MsgType, m.From, m.Term)
 	}
-	return nil
+	return
 }
 
-func (r *Raft) handlePropse(m pb.Message) {
+func (r *Raft) handleTransferLeader(m pb.Message) {
+	r.leadTransferee = m.From
+	if r.matchAllLog(r.leadTransferee) {
+		r.sendTimeout()
+	} else {
+		r.sendAppend(r.leadTransferee)
+	}
+	return
+}
+
+func (r *Raft) sendTimeout() {
+	r.sendMsg(r.leadTransferee, &pb.Message{MsgType: pb.MessageType_MsgTimeoutNow})
+}
+
+func (r *Raft) matchAllLog(to uint64) bool {
+	prs := r.Prs[to]
+	return prs.Match == r.RaftLog.LastIndex()
+}
+
+func (r *Raft) handlePropse(m pb.Message) error {
+	if r.leadTransferee != None {
+		return ErrLeadTransfering
+	}
 	index := r.RaftLog.LastIndex() + 1
 	for i, e := range m.Entries {
 		e.Term = r.Term
@@ -465,9 +493,10 @@ func (r *Raft) handlePropse(m pb.Message) {
 	selfPrs.Next = selfPrs.Match + 1
 	if len(r.Prs) == 1 {
 		r.leaderMaybeCommit()
-		return
+		return nil
 	}
 	r.bcastAppend()
+	return nil
 }
 
 func (r *Raft) bcastAppend() {
@@ -569,6 +598,9 @@ func (r *Raft) handleAppendResp(resp pb.Message) {
 			if r.leaderMaybeCommit() {
 				// broadcast commit index
 				r.bcastAppend()
+			}
+			if r.leadTransferee != None && r.matchAllLog(r.leadTransferee) {
+				r.sendTimeout()
 			}
 		}
 		return
