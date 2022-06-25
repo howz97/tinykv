@@ -101,16 +101,16 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry) {
 	cc := new(eraftpb.ConfChange)
 	err := cc.Unmarshal(ent.Data)
 	util.CheckErr(err)
+	peer := new(metapb.Peer)
+	err = peer.Unmarshal(cc.Context)
+	util.CheckErr(err)
 	region := d.peerStorage.region
 	switch cc.ChangeType {
 	case eraftpb.ConfChangeType_AddNode:
-		peer := new(metapb.Peer)
-		err = peer.Unmarshal(cc.Context)
-		util.CheckErr(err)
 		region.Peers = append(region.Peers, peer)
 	case eraftpb.ConfChangeType_RemoveNode:
-		util.RemovePeer(region, cc.NodeId)
-		if d.PeerId() == cc.NodeId && d.MaybeDestroy() {
+		util.RemovePeer(region, peer.StoreId)
+		if d.PeerId() == peer.Id && d.MaybeDestroy() {
 			d.destroyPeer()
 			return
 		}
@@ -204,6 +204,30 @@ func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.
 		}
 		d.ScheduleCompactLog(req.CompactIndex)
 		resp.CompactLog = new(raft_cmdpb.CompactLogResponse)
+	case raft_cmdpb.AdminCmdType_Split:
+		region0 := d.Region()
+		region0.RegionEpoch.Version++
+		region1 := new(metapb.Region)
+		err := util.CloneMsg(region0, region1)
+		util.CheckErr(err)
+		region0.EndKey = req.Split.SplitKey
+
+		// create peer of new region
+		region1.Id = req.Split.NewRegionId
+		region1.StartKey = req.Split.SplitKey
+		region1.Peers = nil
+		for i, id := range req.Split.NewPeerIds {
+			region1.Peers = append(region1.Peers, &metapb.Peer{
+				Id:      id,
+				StoreId: d.Region().Peers[i].StoreId,
+			})
+		}
+		peer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, region1)
+		util.CheckErr(err)
+		d.ctx.router.register(peer)
+		d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
+
+		engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region0.Id), region0)
 	}
 	return resp
 }
@@ -285,11 +309,7 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		case raft_cmdpb.AdminCmdType_TransferLeader:
 			d.RaftGroup.TransferLeader(admReq.TransferLeader.Peer.Id)
 			return
-		case raft_cmdpb.AdminCmdType_CompactLog:
-			// go on
-		case raft_cmdpb.AdminCmdType_Split:
-			d.proposalSplit(admReq.Split)
-			return
+		default:
 		}
 	}
 
@@ -315,19 +335,15 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 	log.Debugf("proposeRaftCommand=%s, proposals=%s", pp, d.proposalStr())
 }
 
-func (d *peerMsgHandler) proposalSplit(req *raft_cmdpb.SplitRequest) {
-	// todo:
-}
-
 func (d *peerMsgHandler) proposalChangerPeer(req *raft_cmdpb.ChangePeerRequest) {
 	// ignore duplicate config change command caused by re-try
 	switch req.ChangeType {
 	case eraftpb.ConfChangeType_AddNode:
-		if util.FindPeer(d.peerStorage.region, req.Peer.Id) != nil {
+		if util.FindPeer(d.peerStorage.region, req.Peer.StoreId) != nil {
 			return
 		}
 	case eraftpb.ConfChangeType_RemoveNode:
-		if util.FindPeer(d.peerStorage.region, req.Peer.Id) == nil {
+		if util.FindPeer(d.peerStorage.region, req.Peer.StoreId) == nil {
 			return
 		}
 	}
