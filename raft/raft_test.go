@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"runtime/debug"
 	"testing"
 
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -1259,7 +1260,7 @@ func TestLeaderTransferToUpToDateNode3A(t *testing.T) {
 	lead := nt.peers[1].(*Raft)
 
 	if lead.Lead != 1 {
-		t.Fatalf("after election leader is %d, want 1", lead.Lead)
+		t.Fatalf("%s after election leader is %d, want 1", lead, lead.Lead)
 	}
 
 	// Transfer leadership to 2.
@@ -1431,6 +1432,7 @@ func TestLeaderTransferSecondTransferToAnotherNode3A(t *testing.T) {
 
 func checkLeaderTransferState(t *testing.T, r *Raft, state StateType, lead uint64) {
 	if r.State != state || r.Lead != lead {
+		debug.PrintStack()
 		t.Fatalf("after transferring, node has state %v lead %v, want state %v lead %v", r.State, r.Lead, state, lead)
 	}
 }

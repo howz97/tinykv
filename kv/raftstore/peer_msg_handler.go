@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
@@ -57,31 +58,43 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		if len(ent.Data) == 0 {
 			continue
 		}
-		reqs := new(raft_cmdpb.RaftCmdRequest)
-		err := reqs.Unmarshal(ent.Data)
-		if err != nil {
-			panic(err)
+		switch ent.EntryType {
+		case eraftpb.EntryType_EntryNormal:
+			d.applyNormal(ent)
+		case eraftpb.EntryType_EntryConfChange:
+			cc := new(eraftpb.ConfChange)
+			err = cc.Unmarshal(ent.Data)
+			util.CheckErr(err)
+			d.RaftGroup.ApplyConfChange(*cc)
 		}
-		resp, err := d.process(reqs)
-		if !d.IsLeader() {
-			continue
-		}
-		cb := d.takeProposal(ent.Term, ent.Index)
-		if cb == nil {
-			log.Warnf("peer %d do not have callback of (t%d,i%d)", d.PeerId(), ent.Term, ent.Index)
-			continue
-		}
-		if err != nil {
-			cb.Done(ErrResp(err))
-			continue
-		}
-		if len(resp.Responses) > 0 && resp.Responses[0].CmdType == raft_cmdpb.CmdType_Snap {
-			cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
-		}
-		cb.Done(resp)
 	}
 	d.RaftGroup.Advance(rd)
 	d.peer.Send(d.ctx.trans, rd.Messages)
+}
+
+func (d *peerMsgHandler) applyNormal(ent eraftpb.Entry) {
+	reqs := new(raft_cmdpb.RaftCmdRequest)
+	err := reqs.Unmarshal(ent.Data)
+	if err != nil {
+		panic(err)
+	}
+	resp, err := d.process(reqs)
+	if !d.IsLeader() {
+		return
+	}
+	cb := d.takeProposal(ent.Term, ent.Index)
+	if cb == nil {
+		log.Warnf("peer %d do not have callback of (t%d,i%d)", d.PeerId(), ent.Term, ent.Index)
+		return
+	}
+	if err != nil {
+		cb.Done(ErrResp(err))
+		return
+	}
+	if len(resp.Responses) > 0 && resp.Responses[0].CmdType == raft_cmdpb.CmdType_Snap {
+		cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
+	}
+	cb.Done(resp)
 }
 
 func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {

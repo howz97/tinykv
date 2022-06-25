@@ -205,3 +205,9 @@ func RegionEqual(l, r *metapb.Region) bool {
 	}
 	return l.Id == r.Id && l.RegionEpoch.Version == r.RegionEpoch.Version && l.RegionEpoch.ConfVer == r.RegionEpoch.ConfVer
 }
+
+func CheckErr(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
