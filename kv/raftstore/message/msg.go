@@ -23,7 +23,7 @@ const (
 	MsgTypeRaftCmd MsgType = 4
 	// message to trigger split region
 	// it first asks Scheduler for allocating new split region's ids, then schedules a
-	// MsyTypeRaftCmd with split admin command
+	// MsgTypeRaftCmd with split admin command
 	MsgTypeSplitRegion MsgType = 5
 	// message to update region approximate size
 	// it is sent by split checker

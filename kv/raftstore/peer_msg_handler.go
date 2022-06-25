@@ -55,6 +55,9 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		return
 	}
 	for _, ent := range rd.CommittedEntries {
+		if d.stopped {
+			return
+		}
 		if len(ent.Data) == 0 {
 			continue
 		}
@@ -62,10 +65,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		case eraftpb.EntryType_EntryNormal:
 			d.applyNormal(ent)
 		case eraftpb.EntryType_EntryConfChange:
-			cc := new(eraftpb.ConfChange)
-			err = cc.Unmarshal(ent.Data)
-			util.CheckErr(err)
-			d.RaftGroup.ApplyConfChange(*cc)
+			d.applyConfChange(ent)
 		}
 	}
 	d.RaftGroup.Advance(rd)
@@ -95,6 +95,29 @@ func (d *peerMsgHandler) applyNormal(ent eraftpb.Entry) {
 		cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
 	}
 	cb.Done(resp)
+}
+
+func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry) {
+	cc := new(eraftpb.ConfChange)
+	err := cc.Unmarshal(ent.Data)
+	util.CheckErr(err)
+	region := d.peerStorage.region
+	switch cc.ChangeType {
+	case eraftpb.ConfChangeType_AddNode:
+		peer := new(metapb.Peer)
+		err = peer.Unmarshal(cc.Context)
+		util.CheckErr(err)
+		region.Peers = append(region.Peers, peer)
+	case eraftpb.ConfChangeType_RemoveNode:
+		util.RemovePeer(region, cc.NodeId)
+		if d.PeerId() == cc.NodeId && d.MaybeDestroy() {
+			d.destroyPeer()
+			return
+		}
+	}
+	region.RegionEpoch.ConfVer++
+	engine_util.PutMeta(d.peerStorage.Engines.Kv, meta.RegionStateKey(d.regionId), region)
+	d.RaftGroup.ApplyConfChange(*cc)
 }
 
 func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
@@ -253,6 +276,23 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		cb.Done(ErrResp(err))
 		return
 	}
+	if msg.AdminRequest != nil {
+		admReq := msg.AdminRequest
+		switch admReq.CmdType {
+		case raft_cmdpb.AdminCmdType_ChangePeer:
+			d.proposalChangerPeer(admReq.ChangePeer)
+			return
+		case raft_cmdpb.AdminCmdType_TransferLeader:
+			d.RaftGroup.TransferLeader(admReq.TransferLeader.Peer.Id)
+			return
+		case raft_cmdpb.AdminCmdType_CompactLog:
+			// go on
+		case raft_cmdpb.AdminCmdType_Split:
+			d.proposalSplit(admReq.Split)
+			return
+		}
+	}
+
 	data, err := msg.Marshal()
 	if err != nil {
 		cb.Done(ErrResp(err))
@@ -273,6 +313,35 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 	}
 	d.proposals = append(d.proposals, pp)
 	log.Debugf("proposeRaftCommand=%s, proposals=%s", pp, d.proposalStr())
+}
+
+func (d *peerMsgHandler) proposalSplit(req *raft_cmdpb.SplitRequest) {
+	// todo:
+}
+
+func (d *peerMsgHandler) proposalChangerPeer(req *raft_cmdpb.ChangePeerRequest) {
+	// ignore duplicate config change command caused by re-try
+	switch req.ChangeType {
+	case eraftpb.ConfChangeType_AddNode:
+		if util.FindPeer(d.peerStorage.region, req.Peer.Id) != nil {
+			return
+		}
+	case eraftpb.ConfChangeType_RemoveNode:
+		if util.FindPeer(d.peerStorage.region, req.Peer.Id) == nil {
+			return
+		}
+	}
+
+	ctx, err := req.Peer.Marshal()
+	util.CheckErr(err)
+	err = d.RaftGroup.ProposeConfChange(eraftpb.ConfChange{
+		ChangeType: req.ChangeType,
+		NodeId:     req.Peer.Id,
+		Context:    ctx,
+	})
+	if err != nil {
+		log.Errorf("failed to ProposeConfChange: %v", err)
+	}
 }
 
 func (d *peerMsgHandler) onTick() {
