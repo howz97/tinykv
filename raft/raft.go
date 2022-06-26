@@ -471,6 +471,10 @@ func (r *Raft) handleTransferLeader(m pb.Message) error {
 	if !ok {
 		return ErrStepPeerNotFound
 	}
+	if m.From == r.id {
+		// duplicate re-try
+		return nil
+	}
 	r.leadTransferee = m.From
 	if r.matchAllLog(r.leadTransferee) {
 		r.sendTimeout()
@@ -500,9 +504,11 @@ func (r *Raft) handlePropse(m pb.Message) error {
 			panic("too many config change at a time")
 		}
 		if r.PendingConfIndex > r.RaftLog.committed {
+			log.Warnf("%s proposal config change but pending(%d) not finish", r, r.PendingConfIndex)
 			return ErrProposalDropped
 		}
 		r.PendingConfIndex = index
+		log.Infof("%s proposal config change", r)
 	}
 	// append logs
 	for i, e := range m.Entries {
@@ -690,7 +696,7 @@ func (r *Raft) leaderMaybeCommit() bool {
 		return false
 	}
 	r.RaftLog.committed = commit
-	log.Debugf("%s leader updated commited index %s", r, r.RaftLog)
+	log.Infof("%s leader updated commited index %s", r, r.RaftLog)
 	return true
 }
 
@@ -833,8 +839,7 @@ func (r *Raft) advance(rd Ready) {
 			r.RaftLog.stabled = rd.Snapshot.Metadata.Index
 		}
 	}
-	first, err := r.RaftLog.storage.FirstIndex()
-	log.Infof("%s advance: log=%s, first=(%d,%v)", r, r.RaftLog.Desc(), first, err)
+	log.Infof("%s advance: log=%s", r, r.RaftLog.Desc())
 }
 
 // addNode add a new node to raft group

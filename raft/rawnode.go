@@ -209,6 +209,6 @@ func (rn *RawNode) GetProgress() map[uint64]Progress {
 }
 
 // TransferLeader tries to transfer leadership to the given transferee.
-func (rn *RawNode) TransferLeader(transferee uint64) {
-	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee})
+func (rn *RawNode) TransferLeader(transferee uint64) error {
+	return rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee})
 }

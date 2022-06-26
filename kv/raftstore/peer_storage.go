@@ -326,13 +326,39 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 // and ps.clearExtraData to delete stale data
 func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
 	log.Infof("%v begin to apply snapshot", ps.Tag)
+	ps.snapState.StateType = snap.SnapState_Applying
 	snapData := new(rspb.RaftSnapshotData)
-	if err := snapData.Unmarshal(snapshot.Data); err != nil {
+	err := snapData.Unmarshal(snapshot.Data)
+	if err != nil {
 		return nil, err
 	}
-	ps.clearMeta(kvWB, raftWB)
-	// ps.clearExtraData(snapData.Region)
+	result := &ApplySnapResult{
+		PrevRegion: ps.region,
+		Region:     snapData.Region,
+	}
 
+	ps.clearMeta(kvWB, raftWB)
+	ps.clearExtraData(snapData.Region)
+	ps.region = snapData.Region
+	ps.raftState.LastIndex = snapshot.Metadata.Index
+	ps.raftState.LastTerm = snapshot.Metadata.Term
+	ps.applyState.AppliedIndex = snapshot.Metadata.Index
+	ps.applyState.TruncatedState.Index = snapshot.Metadata.Index
+	ps.applyState.TruncatedState.Term = snapshot.Metadata.Term
+	err = raftWB.SetMeta(meta.RaftStateKey(ps.region.Id), ps.raftState)
+	if err != nil {
+		return result, err
+	}
+	err = kvWB.SetMeta(meta.ApplyStateKey(ps.region.Id), ps.applyState)
+	if err != nil {
+		return result, err
+	}
+	err = kvWB.SetMeta(meta.RegionStateKey(ps.region.Id), ps.region)
+	if err != nil {
+		return result, err
+	}
+
+	// re-write all key-value
 	ntf := make(chan bool)
 	ps.regionSched <- &runner.RegionTaskApply{
 		RegionId: snapData.Region.Id,
@@ -341,31 +367,9 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 		StartKey: snapData.Region.StartKey,
 		EndKey:   snapData.Region.EndKey,
 	}
-	ps.snapState.StateType = snap.SnapState_Applying
 	<-ntf
-	rlt := new(ApplySnapResult)
-	rlt.PrevRegion = ps.region
-	rlt.Region = snapData.Region
-	ps.region = snapData.Region
-	ps.raftState.LastIndex = snapshot.Metadata.Index
-	ps.raftState.LastTerm = snapshot.Metadata.Term
-	ps.applyState.AppliedIndex = snapshot.Metadata.Index
-	ps.applyState.TruncatedState.Index = snapshot.Metadata.Index
-	ps.applyState.TruncatedState.Term = snapshot.Metadata.Term
-
-	err := raftWB.SetMeta(meta.RaftStateKey(ps.region.Id), ps.raftState)
-	if err != nil {
-		return rlt, err
-	}
-	err = kvWB.SetMeta(meta.ApplyStateKey(ps.region.Id), ps.applyState)
-	if err != nil {
-		return rlt, err
-	}
-	for _, e := range snapData.Data {
-		kvWB.SetCF("", e.Key, e.Value) // fixme:
-	}
 	ps.snapState.StateType = snap.SnapState_Relax
-	return rlt, nil
+	return result, nil
 }
 
 // Save memory states to disk.
