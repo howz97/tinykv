@@ -120,7 +120,7 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry) (resp *raft_cmdpb.Ra
 			return
 		}
 	}
-	engine_util.PutMeta(d.peerStorage.Engines.Kv, meta.RegionStateKey(d.regionId), region)
+	engine_util.PutMeta(d.peerStorage.Engines.Kv, meta.RegionStateKey(d.regionId), &rspb.RegionLocalState{Region: region})
 	d.RaftGroup.ApplyConfChange(*cc)
 	err = util.CloneMsg(region, resp.AdminResponse.ChangePeer.Region)
 	util.CheckErr(err)

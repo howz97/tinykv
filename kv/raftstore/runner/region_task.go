@@ -162,7 +162,7 @@ func getAppliedIdxTermForSnapshot(raft *badger.DB, kv *badger.Txn, regionId uint
 }
 
 func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId uint64) (*eraftpb.Snapshot, error) {
-	log.Debugf("begin to generate a snapshot. [regionId: %d]", regionId)
+	log.Infof("begin to generate a snapshot. [regionId: %d]", regionId)
 
 	txn := engines.Kv.NewTransaction(false)
 
@@ -180,6 +180,7 @@ func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId ui
 	if err != nil {
 		panic(err)
 	}
+	log.Infof("doSnapshot %v, region=%s", regionState.State, regionState.String())
 	if regionState.GetState() != rspb.PeerState_Normal {
 		return nil, errors.Errorf("snap job %d seems stale, skip", regionId)
 	}

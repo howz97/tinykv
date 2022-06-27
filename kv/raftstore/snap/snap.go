@@ -483,6 +483,7 @@ func (s *Snap) saveCFFiles() error {
 		if size > 0 {
 			err = os.Rename(cfFile.TmpPath, cfFile.Path)
 			if err != nil {
+				log.Errorf("saveCFFiles Rename failed %v", err)
 				return errors.WithStack(err)
 			}
 			cfFile.Size = size

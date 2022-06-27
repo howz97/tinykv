@@ -515,7 +515,7 @@ func (r *Raft) handlePropse(m pb.Message) error {
 		e.Term = r.Term
 		e.Index = index + uint64(i)
 		r.RaftLog.entries = append(r.RaftLog.entries, *e)
-		log.Debugf("%s proposal (t%d,i%d)", r, e.Term, e.Index)
+		log.Infof("%s proposal (t%d,i%d)", r, e.Term, e.Index)
 	}
 	selfPrs := r.Prs[r.id]
 	selfPrs.Match = r.RaftLog.LastIndex()
