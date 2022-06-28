@@ -161,14 +161,18 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 				snapshot = *s
 			}
 		default:
+			log.Infof("%s did not received from region worker, retry later...", ps.Tag)
 			return snapshot, raft.ErrSnapshotTemporarilyUnavailable
 		}
+		log.Infof("%s received snapshot from region worker, now relaxed", ps.Tag)
 		ps.snapState.StateType = snap.SnapState_Relax
 		if snapshot.GetMetadata() != nil {
+			log.Infof("%s succeed to try generating snapshot meta=%s", ps.Tag, snapshot.Metadata.String())
 			ps.snapTriedCnt = 0
 			if ps.validateSnap(&snapshot) {
 				return snapshot, nil
 			}
+			log.Infof("@@@ %s genarated invalid snapshot", ps.Tag)
 		} else {
 			log.Warnf("%s failed to try generating snapshot, times: %d", ps.Tag, ps.snapTriedCnt)
 		}
@@ -192,6 +196,7 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 		RegionId: ps.region.GetId(),
 		Notifier: ch,
 	}
+	log.Infof("%s sent task to region worker just now", ps.Tag)
 	return snapshot, raft.ErrSnapshotTemporarilyUnavailable
 }
 

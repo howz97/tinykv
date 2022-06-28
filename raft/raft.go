@@ -660,6 +660,7 @@ func (r *Raft) handleAppendResp(resp pb.Message) {
 func (r *Raft) sendSnapshot(to uint64) bool {
 	snap, err := r.RaftLog.storage.Snapshot()
 	if err != nil {
+		log.Warnf("%s did not sendSnapshot to %d: %v", r, to, err)
 		return false
 	}
 	r.sendMsg(to, &pb.Message{
@@ -667,6 +668,7 @@ func (r *Raft) sendSnapshot(to uint64) bool {
 		Snapshot: &snap,
 	})
 	// todo: avoid to send snapshot again immediately
+	log.Infof("%s sendSnapshot to %d size=(%d), Meta=%s", r, to, len(snap.Data), snap.Metadata.String())
 	return true
 }
 
@@ -839,7 +841,7 @@ func (r *Raft) advance(rd Ready) {
 			r.RaftLog.stabled = rd.Snapshot.Metadata.Index
 		}
 	}
-	log.Infof("%s advance: log=%s", r, r.RaftLog.Desc())
+	log.Debugf("%s advance: log=%s", r, r.RaftLog.Desc())
 }
 
 // addNode add a new node to raft group
