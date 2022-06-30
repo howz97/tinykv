@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 
 	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -503,7 +504,7 @@ func (r *Raft) handlePropse(m pb.Message) error {
 		if len(m.Entries) != 1 {
 			panic("too many config change at a time")
 		}
-		if r.PendingConfIndex > r.RaftLog.committed {
+		if r.PendingConfIndex > r.RaftLog.applied {
 			log.Warnf("%s proposal config change but pending(%d) not finish", r, r.PendingConfIndex)
 			return ErrProposalDropped
 		}
@@ -559,7 +560,8 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	index := m.Index
 	term, err := r.RaftLog.Term(index)
 	if err != nil {
-		if err != ErrUnavailable {
+		if err != ErrUnavailable && !strings.HasPrefix(err.Error(), "entries' high") {
+			// remove this when stable
 			panic(err)
 		}
 		term, index = r.RaftLog.LastEntry()
@@ -824,8 +826,12 @@ func (r *Raft) handleSnapshot(m pb.Message) {
 			r.RaftLog.entries = nil
 		}
 	}
-	r.RaftLog.applied = cmptIdx
+	if cmptIdx > r.RaftLog.stabled {
+		r.RaftLog.stabled = cmptIdx
+	}
 	r.RaftLog.committed = cmptIdx
+	r.RaftLog.applied = cmptIdx
+
 	// update members
 	r.Prs = make(map[uint64]*Progress, len(m.Snapshot.Metadata.ConfState.Nodes))
 	for _, id := range m.Snapshot.Metadata.ConfState.Nodes {

@@ -115,9 +115,13 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry) (resp *raft_cmdpb.Ra
 	err = peer.Unmarshal(cc.Context)
 	util.CheckErr(err)
 	region := d.peerStorage.region
-	if d.IsLeader() {
-		log.Infof("applyConfChange region %d: %s %d", region.Id, cc.ChangeType, cc.NodeId)
+	if ignoreChangePeer(region, cc.ChangeType, peer.StoreId) {
+		log.Warnf("applyConfChange %v peer %s but already excuted", cc.ChangeType, peer.String())
+		err := util.CloneMsg(region, resp.AdminResponse.ChangePeer.Region)
+		util.CheckErr(err)
+		return resp
 	}
+	log.Infof("peer %s applyConfChange(t%d,i%d) region %d: %s %d .", d.RaftGroup.Raft.String(), ent.Term, ent.Index, region.Id, cc.ChangeType, cc.NodeId)
 	region.RegionEpoch.ConfVer++
 	switch cc.ChangeType {
 	case eraftpb.ConfChangeType_AddNode:
@@ -131,7 +135,10 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry) (resp *raft_cmdpb.Ra
 			util.CheckErr(err)
 			return
 		}
+	default:
+		panic("unknown")
 	}
+	log.Infof("peer %s applyConfChange(t%d,i%d), newest config %s", d.RaftGroup.Raft.String(), ent.Term, ent.Index, region)
 	engine_util.PutMeta(d.peerStorage.Engines.Kv, meta.RegionStateKey(d.regionId), &rspb.RegionLocalState{Region: region})
 	d.RaftGroup.ApplyConfChange(*cc)
 	err = util.CloneMsg(region, resp.AdminResponse.ChangePeer.Region)
@@ -257,7 +264,7 @@ func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.
 		d.ctx.router.register(peer)
 		d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
 
-		engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region0.Id), region0)
+		engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region0.Id), &rspb.RegionLocalState{Region: region0})
 	}
 	return resp
 }
@@ -381,33 +388,17 @@ func (d *peerMsgHandler) proposalTransfer(req *raft_cmdpb.TransferLeaderRequest,
 
 func (d *peerMsgHandler) proposalChangerPeer(req *raft_cmdpb.ChangePeerRequest, cb *message.Callback) {
 	// ignore duplicate config change command caused by re-try
-	switch req.ChangeType {
-	case eraftpb.ConfChangeType_AddNode:
-		if util.FindPeer(d.peerStorage.region, req.Peer.StoreId) != nil {
-			log.Warnf("proposalChangerPeer add peer %s but already exist", req.Peer.String())
-			resp := newCmdResp()
-			resp.AdminResponse = &raft_cmdpb.AdminResponse{
-				CmdType:    raft_cmdpb.AdminCmdType_ChangePeer,
-				ChangePeer: &raft_cmdpb.ChangePeerResponse{Region: new(metapb.Region)},
-			}
-			err := util.CloneMsg(d.Region(), resp.AdminResponse.ChangePeer.Region)
-			util.CheckErr(err)
-			cb.Done(resp)
-			return
+	if ignoreChangePeer(d.peerStorage.region, req.ChangeType, req.Peer.StoreId) {
+		log.Warnf("proposalChangerPeer %v peer %s but already excuted", req.ChangeType, req.Peer.String())
+		resp := newCmdResp()
+		resp.AdminResponse = &raft_cmdpb.AdminResponse{
+			CmdType:    raft_cmdpb.AdminCmdType_ChangePeer,
+			ChangePeer: &raft_cmdpb.ChangePeerResponse{Region: new(metapb.Region)},
 		}
-	case eraftpb.ConfChangeType_RemoveNode:
-		if util.FindPeer(d.peerStorage.region, req.Peer.StoreId) == nil {
-			log.Warnf("proposalChangerPeer remove peer %s but not exist", req.Peer.String())
-			resp := newCmdResp()
-			resp.AdminResponse = &raft_cmdpb.AdminResponse{
-				CmdType:    raft_cmdpb.AdminCmdType_ChangePeer,
-				ChangePeer: &raft_cmdpb.ChangePeerResponse{Region: new(metapb.Region)},
-			}
-			err := util.CloneMsg(d.Region(), resp.AdminResponse.ChangePeer.Region)
-			util.CheckErr(err)
-			cb.Done(resp)
-			return
-		}
+		err := util.CloneMsg(d.Region(), resp.AdminResponse.ChangePeer.Region)
+		util.CheckErr(err)
+		cb.Done(resp)
+		return
 	}
 
 	log.Infof("proposalChangerPeer %s %s", req.ChangeType, req.Peer.String())
@@ -434,6 +425,22 @@ func (d *peerMsgHandler) proposalChangerPeer(req *raft_cmdpb.ChangePeerRequest, 
 	}
 	d.proposals = append(d.proposals, pp)
 	log.Debugf("proposeRaftCommand=%s, proposals=%s", pp, d.proposalStr())
+}
+
+func ignoreChangePeer(region *metapb.Region, typ eraftpb.ConfChangeType, store uint64) bool {
+	switch typ {
+	case eraftpb.ConfChangeType_AddNode:
+		if util.FindPeer(region, store) != nil {
+			return true
+		}
+	case eraftpb.ConfChangeType_RemoveNode:
+		if util.FindPeer(region, store) == nil {
+			return true
+		}
+	default:
+		return true
+	}
+	return false
 }
 
 func (d *peerMsgHandler) onTick() {

@@ -131,7 +131,7 @@ func (d *storeWorker) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 		}
 		return false, errors.Errorf("region %d not exists but not tombstone: %s", regionID, localState)
 	}
-	log.Debugf("region %d in tombstone state: %s", regionID, localState)
+	log.Infof("region %d in tombstone state: %s", regionID, localState)
 	region := localState.Region
 	regionEpoch := region.RegionEpoch
 	// The region in this peer is already destroyed
@@ -154,7 +154,7 @@ func (d *storeWorker) onRaftMessage(msg *rspb.RaftMessage) error {
 	if err := d.ctx.router.send(regionID, message.Msg{Type: message.MsgTypeRaftMessage, Data: msg}); err == nil {
 		return nil
 	}
-	log.Debugf("handle raft message. from_peer:%d, to_peer:%d, store:%d, region:%d, msg:%+v",
+	log.Infof("handle raft message. from_peer:%d, to_peer:%d, store:%d, region:%d, msg:%+v",
 		msg.FromPeer.Id, msg.ToPeer.Id, d.storeState.id, regionID, msg.Message)
 	if msg.ToPeer.StoreId != d.ctx.store.Id {
 		log.Warnf("store not match, ignore it. store_id:%d, to_store_id:%d, region_id:%d",

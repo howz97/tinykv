@@ -358,7 +358,7 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 	if err != nil {
 		return result, err
 	}
-	err = kvWB.SetMeta(meta.RegionStateKey(ps.region.Id), ps.region)
+	err = kvWB.SetMeta(meta.RegionStateKey(ps.region.Id), &rspb.RegionLocalState{Region: ps.region})
 	if err != nil {
 		return result, err
 	}

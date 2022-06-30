@@ -376,6 +376,7 @@ func (m *MockSchedulerClient) handleHeartbeatConfVersion(region *metapb.Region) 
 				panic("unmatched conf version")
 			}
 			if searchRegion.RegionEpoch.Version+1 != region.RegionEpoch.Version {
+				log.Errorf("handleHeartbeatConfVersion: unmatched version %s -> %s", searchRegion, region)
 				panic("unmatched version")
 			}
 		}
@@ -384,6 +385,7 @@ func (m *MockSchedulerClient) handleHeartbeatConfVersion(region *metapb.Region) 
 		if m.regionsRange.ReplaceOrInsert(&regionItem{region: *region}) == nil {
 			panic("update inexistent region ")
 		}
+		log.Infof("handleHeartbeatConfVersion %s -> %s", searchRegion, region)
 	} else {
 		MustSamePeers(searchRegion, region)
 	}
