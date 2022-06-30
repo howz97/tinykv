@@ -604,11 +604,16 @@ func TestBasicConfChange3B(t *testing.T) {
 	// remove peer (2, 2) from region 1
 	cluster.MustRemovePeer(1, NewPeer(2, 2))
 	// add peer (2, 4) to region 1
+	log.Infof("TestBasicConfChange3B @Add peer4 on store2")
 	cluster.MustAddPeer(1, NewPeer(2, 4))
 	// remove peer (3, 3) from region 1
 	cluster.MustRemovePeer(1, NewPeer(3, 3))
 
 	cluster.MustPut([]byte("k4"), []byte("v4"))
+	log.Infof("TestBasicConfChange3B @final check engine %v", cluster.engines[2])
+	for store, eng := range cluster.engines {
+		log.Infof("listing store=%d,engine=%v", store, eng)
+	}
 	MustGetEqual(cluster.engines[2], []byte("k1"), []byte("v1"))
 	MustGetEqual(cluster.engines[2], []byte("k4"), []byte("v4"))
 	MustGetNone(cluster.engines[3], []byte("k1"))

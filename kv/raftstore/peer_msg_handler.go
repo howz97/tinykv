@@ -49,11 +49,22 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		return
 	}
 	rd := d.peer.RaftGroup.Ready()
-	_, err := d.peer.peerStorage.SaveReadyState(&rd)
+	result, err := d.peer.peerStorage.SaveReadyState(&rd)
 	if err != nil {
 		log.Panicf("SaveReadyState %v", err)
 		return
 	}
+	if result != nil && !util.RegionEqual(result.PrevRegion, result.Region) {
+		// update storeMeta
+		storeMeta := d.ctx.storeMeta
+		storeMeta.Lock()
+		storeMeta.regions[d.regionId] = result.Region
+		storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: result.Region})
+		storeMeta.Unlock()
+		kvs := engine_util.GetRange(d.ctx.engine.Kv, result.Region.StartKey, result.Region.EndKey)
+		log.Infof("region state changed from %s to %s: kvs=%v", result.PrevRegion, result.Region, kvs)
+	}
+
 	for _, ent := range rd.CommittedEntries {
 		if len(ent.Data) == 0 {
 			continue
@@ -113,6 +124,7 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry) (resp *raft_cmdpb.Ra
 		region.Peers = append(region.Peers, peer)
 	case eraftpb.ConfChangeType_RemoveNode:
 		util.RemovePeer(region, peer.StoreId)
+		d.removePeerCache(peer.Id)
 		if d.PeerId() == peer.Id && d.MaybeDestroy() {
 			d.destroyPeer()
 			err = util.CloneMsg(region, resp.AdminResponse.ChangePeer.Region)
@@ -520,7 +532,7 @@ func (d *peerMsgHandler) validateRaftMessage(msg *rspb.RaftMessage) bool {
 	regionID := msg.GetRegionId()
 	from := msg.GetFromPeer()
 	to := msg.GetToPeer()
-	log.Debugf("[region %d] handle raft message %s from %d to %d", regionID, msg.Message.MsgType, from.GetId(), to.GetId())
+	log.Debugf("[region %d] handle raft message %s from %d to %d", regionID, msg.Message.GetMsgType(), from.GetId(), to.GetId())
 	if to.GetStoreId() != d.storeID() {
 		log.Warnf("[region %d] store not match, to store id %d, mine %d, ignore it",
 			regionID, to.GetStoreId(), d.storeID())

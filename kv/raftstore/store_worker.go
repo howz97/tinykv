@@ -182,6 +182,7 @@ func (d *storeWorker) onRaftMessage(msg *rspb.RaftMessage) error {
 		return err
 	}
 	if !created {
+		log.Infof("store %d maybeCreatePeer did not created", d.id)
 		return nil
 	}
 	_ = d.ctx.router.send(regionID, message.Msg{Type: message.MsgTypeRaftMessage, Data: msg})
@@ -202,7 +203,7 @@ func (d *storeWorker) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (b
 		return true, nil
 	}
 	if !util.IsInitialMsg(msg.Message) {
-		log.Debugf("target peer %s doesn't exist", msg.ToPeer)
+		log.Infof("target peer %s doesn't exist", msg.ToPeer)
 		return false, nil
 	}
 
@@ -210,7 +211,7 @@ func (d *storeWorker) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (b
 		StartKey: msg.StartKey,
 		EndKey:   msg.EndKey,
 	}) {
-		log.Debugf("msg %s is overlapped with exist region %s", msg, region)
+		log.Infof("msg %s is overlapped with exist region %s", msg, region)
 		if util.IsFirstVoteMessage(msg.Message) {
 			meta.pendingVotes = append(meta.pendingVotes, msg)
 		}
@@ -220,6 +221,7 @@ func (d *storeWorker) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (b
 	peer, err := replicatePeer(
 		d.ctx.store.Id, d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, regionID, msg.ToPeer)
 	if err != nil {
+		log.Errorf("store %d failed to create peer %s", d.ctx.store.Id, msg.ToPeer.String())
 		return false, err
 	}
 	// following snapshot may overlap, should insert into regionRanges after
@@ -227,6 +229,7 @@ func (d *storeWorker) maybeCreatePeer(regionID uint64, msg *rspb.RaftMessage) (b
 	meta.regions[regionID] = peer.Region()
 	d.ctx.router.register(peer)
 	_ = d.ctx.router.send(regionID, message.Msg{Type: message.MsgTypeStart})
+	log.Infof("store %d replicated peer=%s,region=%s ", d.id, peer.Tag, peer.Region())
 	return true, nil
 }
 

@@ -330,7 +330,7 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 // and send RegionTaskApply task to region worker through ps.regionSched, also remember call ps.clearMeta
 // and ps.clearExtraData to delete stale data
 func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
-	log.Infof("%v begin to apply snapshot", ps.Tag)
+	log.Infof("%v begin to apply snapshot to engine %v", ps.Tag, ps.Engines)
 	ps.snapState.StateType = snap.SnapState_Applying
 	snapData := new(rspb.RaftSnapshotData)
 	err := snapData.Unmarshal(snapshot.Data)
@@ -344,7 +344,7 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 
 	ps.clearMeta(kvWB, raftWB)
 	ps.clearExtraData(snapData.Region)
-	ps.region = snapData.Region
+	ps.SetRegion(snapData.Region)
 	ps.raftState.LastIndex = snapshot.Metadata.Index
 	ps.raftState.LastTerm = snapshot.Metadata.Term
 	ps.applyState.AppliedIndex = snapshot.Metadata.Index
@@ -411,12 +411,8 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (rlt *ApplySnapResult, 
 			return
 		}
 	}
-	if err = raftWB.WriteToDB(ps.Engines.Raft); err != nil {
-		return
-	}
-	if err = kvWB.WriteToDB(ps.Engines.Kv); err != nil {
-		return
-	}
+	kvWB.MustWriteToDB(ps.Engines.Kv)
+	raftWB.MustWriteToDB(ps.Engines.Raft)
 	return
 }
 

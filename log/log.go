@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"runtime/debug"
 )
 
 const (
@@ -121,6 +122,7 @@ func Errorf(format string, v ...interface{}) {
 }
 
 func Fatal(v ...interface{}) {
+	debug.PrintStack()
 	_log.Fatal(v...)
 }
 

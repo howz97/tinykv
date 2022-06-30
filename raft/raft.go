@@ -604,6 +604,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 				r.RaftLog.entries = append(r.RaftLog.entries, *e)
 			}
 			resp.Index = r.RaftLog.LastIndex()
+			log.Infof("%s accept append entries: %s -> %s", r, bef, r.RaftLog)
 		} else {
 			// can not assure whether tail logs match with leader
 			resp.Index = index
@@ -613,7 +614,6 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 			r.RaftLog.committed = min(m.Commit, resp.Index)
 			log.Infof("%s follower updated commited index %d", r, r.RaftLog.committed)
 		}
-		log.Infof("%s accept append entries: %s -> %s", r, bef, r.RaftLog)
 	}
 	r.sendMsg(m.From, resp)
 }
@@ -667,7 +667,8 @@ func (r *Raft) sendSnapshot(to uint64) bool {
 		MsgType:  pb.MessageType_MsgSnapshot,
 		Snapshot: &snap,
 	})
-	// todo: avoid to send snapshot again immediately
+	// avoid to send snapshot again immediately
+	r.Prs[to].Next = snap.Metadata.Index + 1
 	log.Infof("%s sendSnapshot to %d size=(%d), Meta=%s", r, to, len(snap.Data), snap.Metadata.String())
 	return true
 }
@@ -707,6 +708,10 @@ func (r *Raft) sendMsg(to uint64, m *pb.Message) {
 	m.To = to
 	m.Term = r.Term
 	m.Commit = r.RaftLog.committed
+	if m.MsgType == pb.MessageType_MsgHeartbeat {
+		// heartbeat with commit=0 will notify store to replicate peer
+		m.Commit = 0
+	}
 	r.msgs = append(r.msgs, *m)
 }
 
@@ -841,7 +846,9 @@ func (r *Raft) advance(rd Ready) {
 			r.RaftLog.stabled = rd.Snapshot.Metadata.Index
 		}
 	}
-	log.Debugf("%s advance: log=%s", r, r.RaftLog.Desc())
+	if len(rd.CommittedEntries) > 0 || !IsEmptySnap(&rd.Snapshot) {
+		log.Infof("%s advance: log=%s", r, r.RaftLog.Desc())
+	}
 }
 
 // addNode add a new node to raft group

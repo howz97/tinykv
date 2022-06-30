@@ -150,7 +150,7 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 		return []pb.Entry{}
 	}
 	offset := l.entries[0].Index
-	uns := l.entries[l.stabled-offset+1:]
+	uns := l.entries[int64(l.stabled-offset)+1:] // stabled maybe equal to offset-1
 	if len(uns) == 0 {
 		return []pb.Entry{}
 	}

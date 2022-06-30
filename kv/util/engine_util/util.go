@@ -2,6 +2,7 @@ package engine_util
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/Connor1996/badger"
 	"github.com/golang/protobuf/proto"
@@ -100,6 +101,36 @@ func deleteRangeCF(txn *badger.Txn, batch *WriteBatch, cf string, startKey, endK
 		batch.DeleteCF(cf, key)
 	}
 	defer it.Close()
+}
+
+func GetRange(db *badger.DB, start, end []byte) (kvs []string) {
+	txn := db.NewTransaction(false)
+	defer txn.Discard()
+	for _, cf := range CFs {
+		kvs = append(kvs, getRangeCF(txn, cf, start, end)...)
+	}
+	return
+}
+
+func getRangeCF(txn *badger.Txn, cf string, startKey, endKey []byte) (kvs []string) {
+	it := NewCFIterator(cf, txn)
+	for it.Seek(startKey); it.Valid(); it.Next() {
+		item := it.Item()
+		key := item.KeyCopy(nil)
+		if ExceedEndKey(key, endKey) {
+			break
+		}
+		val := ""
+		v, err := item.Value()
+		if err != nil {
+			val = err.Error()
+		} else {
+			val = string(v)
+		}
+		kvs = append(kvs, fmt.Sprintf("%s:%s", string(key), val))
+	}
+	it.Close()
+	return
 }
 
 func ExceedEndKey(current, endKey []byte) bool {

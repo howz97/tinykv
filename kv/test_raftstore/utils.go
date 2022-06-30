@@ -100,7 +100,7 @@ func MustGetCf(engine *engine_util.Engines, cf string, key []byte, value []byte)
 		}
 		SleepMS(20)
 	}
-	panic(fmt.Sprintf("can't get value %s for key %s", hex.EncodeToString(value), hex.EncodeToString(key)))
+	panic(fmt.Sprintf("can't get value %s(%s) for key %s(%s)", hex.EncodeToString(value), string(value), hex.EncodeToString(key), string(key)))
 }
 
 func MustGetCfEqual(engine *engine_util.Engines, cf string, key []byte, value []byte) {
