@@ -92,9 +92,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 func (d *peerMsgHandler) applyNormal(ent eraftpb.Entry) *raft_cmdpb.RaftCmdResponse {
 	reqs := new(raft_cmdpb.RaftCmdRequest)
 	err := reqs.Unmarshal(ent.Data)
-	if err != nil {
-		panic(err)
-	}
+	util.CheckErr(err)
 	resp, err := d.process(reqs)
 	if err != nil {
 		return ErrResp(err)
@@ -198,15 +196,19 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.R
 }
 
 func (d *peerMsgHandler) processGet(req *raft_cmdpb.GetRequest) (*raft_cmdpb.GetResponse, error) {
-	resp := new(raft_cmdpb.GetResponse)
+	log.Infof("processGet %s, region=%s", string(req.Key), d.Region().String())
 	if err := util.CheckKeyInRegion(req.Key, d.Region()); err != nil {
-		return resp, err
+		log.Infof("processGet CheckKeyInRegion %v", err)
+		return nil, err
 	}
+	log.Infof("processGet @ in region")
 	val, err := engine_util.GetCF(d.peer.peerStorage.Engines.Kv, req.Cf, req.Key)
 	if err != nil {
-		return resp, err
+		return nil, err
 	}
+	resp := new(raft_cmdpb.GetResponse)
 	resp.Value = val
+	log.Infof("processGet val=%s", string(val))
 	return resp, nil
 }
 
@@ -229,7 +231,9 @@ func (d *peerMsgHandler) processDel(req *raft_cmdpb.DeleteRequest) (*raft_cmdpb.
 }
 
 func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.AdminResponse {
-	resp := new(raft_cmdpb.AdminResponse)
+	resp := &raft_cmdpb.AdminResponse{
+		CmdType: req.CmdType,
+	}
 	switch req.CmdType {
 	case raft_cmdpb.AdminCmdType_CompactLog:
 		req := req.CompactLog
@@ -242,29 +246,46 @@ func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.
 		d.ScheduleCompactLog(req.CompactIndex)
 		resp.CompactLog = new(raft_cmdpb.CompactLogResponse)
 	case raft_cmdpb.AdminCmdType_Split:
+		// change meta data
 		region0 := d.Region()
-		region0.RegionEpoch.Version++
-		region1 := new(metapb.Region)
-		err := util.CloneMsg(region0, region1)
-		util.CheckErr(err)
-		region0.EndKey = req.Split.SplitKey
-
-		// create peer of new region
-		region1.Id = req.Split.NewRegionId
-		region1.StartKey = req.Split.SplitKey
-		region1.Peers = nil
+		region1 := &metapb.Region{
+			Id:       req.Split.NewRegionId,
+			StartKey: req.Split.SplitKey,
+			EndKey:   region0.EndKey,
+			RegionEpoch: &metapb.RegionEpoch{
+				ConfVer: region0.RegionEpoch.ConfVer,
+				Version: region0.RegionEpoch.Version + 1,
+			},
+		}
 		for i, id := range req.Split.NewPeerIds {
 			region1.Peers = append(region1.Peers, &metapb.Peer{
 				Id:      id,
-				StoreId: d.Region().Peers[i].StoreId,
+				StoreId: region0.Peers[i].StoreId,
 			})
 		}
+		region0.RegionEpoch.Version++
+		region0.EndKey = req.Split.SplitKey
+		engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region0.Id), &rspb.RegionLocalState{Region: region0})
+		// persist initial meta of region1
+		kvWB := new(engine_util.WriteBatch)
+		kvWB.SetMeta(meta.RegionStateKey(region1.Id), &rspb.RegionLocalState{Region: region1})
+		writeInitialApplyState(kvWB, region1.Id)
+		err := d.ctx.engine.WriteKV(kvWB)
+		util.CheckErr(err)
+		raftWB := new(engine_util.WriteBatch)
+		writeInitialRaftState(raftWB, region1.Id)
+		err = d.ctx.engine.WriteRaft(raftWB)
+		util.CheckErr(err)
+
+		// create peer of region1
 		peer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, region1)
 		util.CheckErr(err)
 		d.ctx.router.register(peer)
 		d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
-
-		engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region0.Id), &rspb.RegionLocalState{Region: region0})
+		// response
+		resp.Split = new(raft_cmdpb.SplitResponse)
+		resp.Split.Regions = append(resp.Split.Regions, util.CopyRegion(region0), util.CopyRegion(region1))
+		log.Infof("%s finished to split region into %s and %s", d.Tag, region0.String(), region1.String())
 	}
 	return resp
 }
@@ -283,7 +304,7 @@ func (d *peerMsgHandler) HandleMsg(msg message.Msg) {
 		d.onTick()
 	case message.MsgTypeSplitRegion:
 		split := msg.Data.(*message.MsgSplitRegion)
-		log.Infof("%s on split with %v", d.Tag, split.SplitKey)
+		log.Infof("%s on split with %v", d.Tag, string(split.SplitKey))
 		d.onPrepareSplitRegion(split.RegionEpoch, split.SplitKey, split.Callback)
 	case message.MsgTypeRegionApproximateSize:
 		d.onApproximateRegionSize(msg.Data.(uint64))

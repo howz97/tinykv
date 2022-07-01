@@ -152,9 +152,6 @@ func (bs *Raftstore) loadPeers() ([]*peer, error) {
 				bs.clearStaleMeta(kvWB, raftWB, localState)
 				continue
 			}
-			if region == nil {
-				log.Panicf("region is nil, localState=%v,%v", localState.State, localState.Region)
-			}
 			peer, err := createPeer(storeID, ctx.cfg, ctx.regionTaskSender, ctx.engine, region)
 			if err != nil {
 				return err

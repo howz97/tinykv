@@ -211,3 +211,10 @@ func CheckErr(err error) {
 		panic(err)
 	}
 }
+
+func CopyRegion(origin *metapb.Region) *metapb.Region {
+	cp := new(metapb.Region)
+	err := CloneMsg(origin, cp)
+	CheckErr(err)
+	return cp
+}
