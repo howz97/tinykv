@@ -42,7 +42,7 @@ func (r *splitCheckHandler) Handle(t worker.Task) {
 	}
 	region := spCheckTask.Region
 	regionId := region.Id
-	log.Debugf("executing split check worker.Task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
+	log.Infof("executing split check worker.Task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
 		hex.EncodeToString(region.StartKey), hex.EncodeToString(region.EndKey))
 	key := r.splitCheck(regionId, region.StartKey, region.EndKey)
 	if key != nil {
@@ -52,6 +52,7 @@ func (r *splitCheckHandler) Handle(t worker.Task) {
 			// To make sure the keys of same user key locate in one Region, decode and then encode to truncate the timestamp
 			key = codec.EncodeBytes(userKey)
 		}
+		log.Infof("split key found %s: region=%d,[%s,%s)", string(key), regionId, string(region.StartKey), string(region.EndKey))
 		msg := message.Msg{
 			Type:     message.MsgTypeSplitRegion,
 			RegionID: regionId,
@@ -65,7 +66,7 @@ func (r *splitCheckHandler) Handle(t worker.Task) {
 			log.Warnf("failed to send check result: [regionId: %d, err: %v]", regionId, err)
 		}
 	} else {
-		log.Debugf("no need to send, split key not found: [regionId: %v]", regionId)
+		log.Infof("no need to send, split key not found: [regionId: %v]", regionId)
 	}
 }
 
@@ -81,6 +82,7 @@ func (r *splitCheckHandler) splitCheck(regionID uint64, startKey, endKey []byte)
 		item := it.Item()
 		key := item.Key()
 		if engine_util.ExceedEndKey(key, endKey) {
+			log.Infof("region %d splitCheck currentSize = %d, keyRange=[%s,%s)", regionID, r.checker.currentSize, string(startKey), string(endKey))
 			// update region size
 			r.router.Send(regionID, message.Msg{
 				Type: message.MsgTypeRegionApproximateSize,
@@ -89,6 +91,7 @@ func (r *splitCheckHandler) splitCheck(regionID uint64, startKey, endKey []byte)
 			break
 		}
 		if r.checker.onKv(key, item) {
+			log.Infof("region %d splitCheck passed currentSize = %d, keyRange=[%s,%s)", regionID, r.checker.currentSize, string(startKey), string(endKey))
 			break
 		}
 	}

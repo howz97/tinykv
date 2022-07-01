@@ -683,6 +683,7 @@ func TestOneSplit3B(t *testing.T) {
 	left := cluster.GetRegion([]byte("k1"))
 	right := cluster.GetRegion([]byte("k2"))
 
+	log.Infof("TestOneSplit3B check split happend leftRegion=%d, right=%d", left.GetId(), right.GetId())
 	assert.NotEqual(t, left.GetId(), right.GetId())
 	assert.True(t, bytes.Equal(region.GetStartKey(), left.GetStartKey()))
 	assert.True(t, bytes.Equal(left.GetEndKey(), right.GetStartKey()))
@@ -692,7 +693,7 @@ func TestOneSplit3B(t *testing.T) {
 	resp, _ := cluster.CallCommandOnLeader(&req, time.Second)
 	assert.NotNil(t, resp.GetHeader().GetError())
 	assert.NotNil(t, resp.GetHeader().GetError().GetKeyNotInRegion())
-	log.Infof("resp=%v, header=%s", resp.String(), resp.Header.String())
+	log.Infof("TestOneSplit3B resp=%v, header=%s", resp.String(), resp.Header.String())
 
 	MustGetEqual(cluster.engines[5], []byte("k100"), []byte("v100"))
 }

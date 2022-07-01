@@ -218,6 +218,7 @@ func (d *peerMsgHandler) processPut(req *raft_cmdpb.PutRequest) (*raft_cmdpb.Put
 		return resp, err
 	}
 	err := engine_util.PutCF(d.peer.peerStorage.Engines.Kv, req.Cf, req.Key, req.Value)
+	d.SizeDiffHint += uint64(len(req.Cf) + len(req.Key) + len(req.Value))
 	return resp, err
 }
 
@@ -246,8 +247,12 @@ func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.
 		d.ScheduleCompactLog(req.CompactIndex)
 		resp.CompactLog = new(raft_cmdpb.CompactLogResponse)
 	case raft_cmdpb.AdminCmdType_Split:
-		// change meta data
 		region0 := d.Region()
+		if util.CheckKeyInRegion(req.Split.SplitKey, region0) != nil {
+			// split already executed
+			break
+		}
+		// change meta data
 		region1 := &metapb.Region{
 			Id:       req.Split.NewRegionId,
 			StartKey: req.Split.SplitKey,
@@ -266,22 +271,14 @@ func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.
 		region0.RegionEpoch.Version++
 		region0.EndKey = req.Split.SplitKey
 		engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region0.Id), &rspb.RegionLocalState{Region: region0})
-		// persist initial meta of region1
-		kvWB := new(engine_util.WriteBatch)
-		kvWB.SetMeta(meta.RegionStateKey(region1.Id), &rspb.RegionLocalState{Region: region1})
-		writeInitialApplyState(kvWB, region1.Id)
-		err := d.ctx.engine.WriteKV(kvWB)
-		util.CheckErr(err)
-		raftWB := new(engine_util.WriteBatch)
-		writeInitialRaftState(raftWB, region1.Id)
-		err = d.ctx.engine.WriteRaft(raftWB)
-		util.CheckErr(err)
 
-		// create peer of region1
+		// start peer of region1
 		peer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, region1)
 		util.CheckErr(err)
 		d.ctx.router.register(peer)
 		d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
+		err = d.ctx.router.send(region1.Id, message.Msg{Type: message.MsgTypeStart})
+		util.CheckErr(err)
 		// response
 		resp.Split = new(raft_cmdpb.SplitResponse)
 		resp.Split.Regions = append(resp.Split.Regions, util.CopyRegion(region0), util.CopyRegion(region1))
@@ -800,13 +797,18 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	if !d.IsLeader() {
 		return
 	}
-	if d.ApproximateSize != nil && d.SizeDiffHint < d.ctx.cfg.RegionSplitSize/8 {
+	if d.ApproximateSize != nil && *d.ApproximateSize+d.SizeDiffHint <= d.ctx.cfg.RegionSplitSize {
 		return
 	}
+
+	approx := uint64(0)
+	if d.ApproximateSize != nil {
+		approx = *d.ApproximateSize
+	}
+	log.Infof("%s onSplitRegionCheckTick send check message: Approx=%v, hint=%v, splitSize=%d", d.Tag, approx, d.SizeDiffHint, d.ctx.cfg.RegionSplitSize)
 	d.ctx.splitCheckTaskSender <- &runner.SplitCheckTask{
 		Region: d.Region(),
 	}
-	d.SizeDiffHint = 0
 }
 
 func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKey []byte, cb *message.Callback) {
@@ -858,6 +860,8 @@ func (d *peerMsgHandler) validateSplitRegion(epoch *metapb.RegionEpoch, splitKey
 
 func (d *peerMsgHandler) onApproximateRegionSize(size uint64) {
 	d.ApproximateSize = &size
+	d.SizeDiffHint = 0
+	log.Infof("%s onApproximateRegionSize(%d)", d.Tag, size)
 }
 
 func (d *peerMsgHandler) onSchedulerHeartbeatTick() {

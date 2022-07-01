@@ -71,7 +71,7 @@ func newLog(storage Storage) *RaftLog {
 	if last >= first {
 		ents, err := storage.Entries(first, last+1)
 		if err != nil {
-			log.Panicf("first=%d, last=%d: %v", first, last, err)
+			log.Panicf("[first=%d, last=%d): %v", first, last, err)
 		}
 		lg.entries = ents
 	}
