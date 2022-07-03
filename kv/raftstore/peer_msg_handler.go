@@ -266,6 +266,7 @@ func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.
 }
 
 func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_cmdpb.SplitResponse {
+	log.Infof("%s processAdminSplit req %v", d.Tag, req)
 	if len(req.NewPeerIds) == 0 {
 		log.Errorf("split request is invalid: %s", req)
 		return nil
@@ -273,6 +274,13 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_c
 	region0 := d.Region()
 	if util.CheckKeyInRegion(req.SplitKey, region0) != nil {
 		log.Warnf("split already executed")
+		return nil
+	}
+	storeMeta := d.ctx.storeMeta
+	storeMeta.Lock()
+	defer storeMeta.Unlock()
+	if _, ok := storeMeta.regions[req.NewRegionId]; ok {
+		log.Warnf("%s processAdminSplit but region already exist, maybe replicatePeer created it", d.Tag)
 		return nil
 	}
 	// change meta data
@@ -293,7 +301,7 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_c
 		}
 		region1.Peers = append(region1.Peers, &metapb.Peer{
 			Id:      id,
-			StoreId: region0.Peers[i].StoreId, // todo: overflow
+			StoreId: region0.Peers[i].StoreId,
 		})
 	}
 	region0.RegionEpoch.Version++
@@ -305,7 +313,7 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_c
 	peer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, region1)
 	util.CheckErr(err)
 	d.ctx.router.register(peer)
-	d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
+	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
 	err = d.ctx.router.send(region1.Id, message.Msg{Type: message.MsgTypeStart})
 	util.CheckErr(err)
 	// response
@@ -314,6 +322,10 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_c
 	log.Infof("peer %s on store %v finished to split region, new peer=%v, epoch=%s, regions=(%d,%s...%s);(%d,%s...%s)",
 		d.Tag, d.storeID(), peer.Tag, region0.RegionEpoch,
 		region0.Id, string(region0.StartKey), string(region0.EndKey), region1.Id, string(region1.StartKey), string(region1.EndKey))
+	if d.IsLeader() {
+		// let one peer to notify PD that new region has been generated
+		peer.HeartbeatScheduler(d.ctx.schedulerTaskSender)
+	}
 	return resp
 }
 
