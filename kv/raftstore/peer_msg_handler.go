@@ -75,6 +75,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		case eraftpb.EntryType_EntryNormal:
 			resp = d.applyNormal(ent)
 			if cb != nil && len(resp.Responses) > 0 && resp.Responses[0].CmdType == raft_cmdpb.CmdType_Snap {
+				log.Infof("peer %s applied and response snap entry=(t%d,i%d)", d.Tag, ent.Term, ent.Index)
 				cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
 			}
 		case eraftpb.EntryType_EntryConfChange:
@@ -180,10 +181,10 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.R
 				Delete:  r,
 			})
 		case raft_cmdpb.CmdType_Snap:
-			r := new(raft_cmdpb.SnapResponse)
-			r.Region = new(metapb.Region)
-			err := util.CloneMsg(d.peerStorage.region, r.Region)
-			util.CheckErr(err)
+			r, err := d.processSnap()
+			if err != nil {
+				return nil, err
+			}
 			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
 				CmdType: raft_cmdpb.CmdType_Snap,
 				Snap:    r,
@@ -195,30 +196,45 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.R
 	return resp, nil
 }
 
+func (d *peerMsgHandler) processSnap() (*raft_cmdpb.SnapResponse, error) {
+	resp := new(raft_cmdpb.SnapResponse)
+	resp.Region = new(metapb.Region)
+	err := util.CloneMsg(d.peerStorage.region, resp.Region)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 func (d *peerMsgHandler) processGet(req *raft_cmdpb.GetRequest) (*raft_cmdpb.GetResponse, error) {
-	log.Infof("processGet %s, region=%s", string(req.Key), d.Region().String())
 	if err := util.CheckKeyInRegion(req.Key, d.Region()); err != nil {
 		log.Infof("processGet CheckKeyInRegion %v", err)
 		return nil, err
 	}
-	log.Infof("processGet @ in region")
-	val, err := engine_util.GetCF(d.peer.peerStorage.Engines.Kv, req.Cf, req.Key)
+	val, err := engine_util.GetCF(d.ctx.engine.Kv, req.Cf, req.Key)
 	if err != nil {
 		return nil, err
 	}
 	resp := new(raft_cmdpb.GetResponse)
 	resp.Value = val
-	log.Infof("processGet val=%s", string(val))
 	return resp, nil
 }
 
 func (d *peerMsgHandler) processPut(req *raft_cmdpb.PutRequest) (*raft_cmdpb.PutResponse, error) {
-	resp := new(raft_cmdpb.PutResponse)
-	if err := util.CheckKeyInRegion(req.Key, d.Region()); err != nil {
-		return resp, err
+	err := util.CheckKeyInRegion(req.Key, d.Region())
+	if err != nil {
+		return nil, err
 	}
-	err := engine_util.PutCF(d.peer.peerStorage.Engines.Kv, req.Cf, req.Key, req.Value)
+	err = engine_util.PutCF(d.ctx.engine.Kv, req.Cf, req.Key, req.Value)
+	if err != nil {
+		log.Errorf("processPut error %v", err)
+		return nil, err
+	}
+	resp := new(raft_cmdpb.PutResponse)
 	d.SizeDiffHint += uint64(len(req.Cf) + len(req.Key) + len(req.Value))
+	if d.IsLeader() {
+		log.Infof("processPut succeed: all kvs=%v", engine_util.GetRange(d.ctx.engine.Kv, d.Region().StartKey, d.Region().EndKey))
+	}
 	return resp, err
 }
 
@@ -227,7 +243,7 @@ func (d *peerMsgHandler) processDel(req *raft_cmdpb.DeleteRequest) (*raft_cmdpb.
 	if err := util.CheckKeyInRegion(req.Key, d.Region()); err != nil {
 		return resp, err
 	}
-	err := engine_util.DeleteCF(d.peer.peerStorage.Engines.Kv, req.Cf, req.Key)
+	err := engine_util.DeleteCF(d.ctx.engine.Kv, req.Cf, req.Key)
 	return resp, err
 }
 
@@ -271,6 +287,7 @@ func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.
 		region0.RegionEpoch.Version++
 		region0.EndKey = req.Split.SplitKey
 		engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region0.Id), &rspb.RegionLocalState{Region: region0})
+		engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region1.Id), &rspb.RegionLocalState{Region: region1})
 
 		// start peer of region1
 		peer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, region1)
@@ -282,7 +299,9 @@ func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.
 		// response
 		resp.Split = new(raft_cmdpb.SplitResponse)
 		resp.Split.Regions = append(resp.Split.Regions, util.CopyRegion(region0), util.CopyRegion(region1))
-		log.Infof("%s finished to split region into %s and %s", d.Tag, region0.String(), region1.String())
+		log.Infof("peer %s on store %v finished to split region, new peer=%v, epoch=%s, regions=(%d,%s...%s);(%d,%s...%s)",
+			d.Tag, d.storeID(), peer.Tag, region0.RegionEpoch,
+			region0.Id, string(region0.StartKey), string(region0.EndKey), region1.Id, string(region1.StartKey), string(region1.EndKey))
 	}
 	return resp
 }
@@ -793,19 +812,17 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	if len(d.ctx.splitCheckTaskSender) > 0 {
 		return
 	}
-
 	if !d.IsLeader() {
 		return
 	}
-	if d.ApproximateSize != nil && *d.ApproximateSize+d.SizeDiffHint <= d.ctx.cfg.RegionSplitSize {
-		return
-	}
-
-	approx := uint64(0)
+	approx := uint64(d.ctx.cfg.RegionMaxSize)
 	if d.ApproximateSize != nil {
 		approx = *d.ApproximateSize
 	}
-	log.Infof("%s onSplitRegionCheckTick send check message: Approx=%v, hint=%v, splitSize=%d", d.Tag, approx, d.SizeDiffHint, d.ctx.cfg.RegionSplitSize)
+	if approx+d.SizeDiffHint <= d.ctx.cfg.RegionMaxSize {
+		return
+	}
+	log.Infof("%s onSplitRegionCheckTick send check message: Approx=%v, hint=%v, splitMax=%d", d.Tag, approx, d.SizeDiffHint, d.ctx.cfg.RegionMaxSize)
 	d.ctx.splitCheckTaskSender <- &runner.SplitCheckTask{
 		Region: d.Region(),
 	}

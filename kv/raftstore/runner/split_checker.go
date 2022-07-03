@@ -66,7 +66,7 @@ func (r *splitCheckHandler) Handle(t worker.Task) {
 			log.Warnf("failed to send check result: [regionId: %d, err: %v]", regionId, err)
 		}
 	} else {
-		log.Infof("no need to send, split key not found: [regionId: %v]", regionId)
+		log.Infof("no need to send, split key not found: [regionId: %v], kvs=%v", regionId, engine_util.GetRange(r.engine, region.StartKey, region.EndKey))
 	}
 }
 
@@ -82,12 +82,6 @@ func (r *splitCheckHandler) splitCheck(regionID uint64, startKey, endKey []byte)
 		item := it.Item()
 		key := item.Key()
 		if engine_util.ExceedEndKey(key, endKey) {
-			log.Infof("region %d splitCheck currentSize = %d, keyRange=[%s,%s)", regionID, r.checker.currentSize, string(startKey), string(endKey))
-			// update region size
-			r.router.Send(regionID, message.Msg{
-				Type: message.MsgTypeRegionApproximateSize,
-				Data: r.checker.currentSize,
-			})
 			break
 		}
 		if r.checker.onKv(key, item) {
@@ -95,7 +89,18 @@ func (r *splitCheckHandler) splitCheck(regionID uint64, startKey, endKey []byte)
 			break
 		}
 	}
-	return r.checker.getSplitKey()
+	log.Infof("region %d splitCheck currentSize = %d, keyRange=[%s,%s)", regionID, r.checker.currentSize, string(startKey), string(endKey))
+	// update region size
+	apprxMsg := message.Msg{
+		Type: message.MsgTypeRegionApproximateSize,
+		Data: r.checker.currentSize,
+	}
+	splitKey := r.checker.getSplitKey()
+	if splitKey != nil {
+		apprxMsg.Data = r.checker.splitSize
+	}
+	r.router.Send(regionID, apprxMsg)
+	return splitKey
 }
 
 type sizeSplitChecker struct {

@@ -1,10 +1,13 @@
 package raftstore
 
 import (
+	"fmt"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 
@@ -61,6 +64,12 @@ func (pr *router) send(regionID uint64, msg message.Msg) error {
 	msg.RegionID = regionID
 	p := pr.get(regionID)
 	if p == nil || atomic.LoadUint32(&p.closed) == 1 {
+		if regionID > 1 {
+			log.Infof("router send message to new region %d, peer not found, register=%v", regionID, pr.String())
+			if rand.Intn(200) == 0 {
+				panic("something wrong with router")
+			}
+		}
 		return errPeerNotFound
 	}
 	pr.peerSender <- msg
@@ -69,6 +78,17 @@ func (pr *router) send(regionID uint64, msg message.Msg) error {
 
 func (pr *router) sendStore(msg message.Msg) {
 	pr.storeSender <- msg
+}
+
+func (pr *router) String() string {
+	register := ""
+	pr.peers.Range(func(key, value interface{}) bool {
+		k := key.(uint64)
+		v := value.(*peerState)
+		register += fmt.Sprintf("reg%d:peer%v,", k, v.peer.Tag)
+		return true
+	})
+	return fmt.Sprintf("{addr=%p;list=%s}", pr, register)
 }
 
 var errPeerNotFound = errors.New("peer not found")

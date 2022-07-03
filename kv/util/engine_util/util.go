@@ -103,13 +103,20 @@ func deleteRangeCF(txn *badger.Txn, batch *WriteBatch, cf string, startKey, endK
 	defer it.Close()
 }
 
-func GetRange(db *badger.DB, start, end []byte) (kvs []string) {
+func GetRange(db *badger.DB, start, end []byte) string {
 	txn := db.NewTransaction(false)
 	defer txn.Discard()
+	kvs := "{"
 	for _, cf := range CFs {
-		kvs = append(kvs, getRangeCF(txn, cf, start, end)...)
+		s := getRangeCF(txn, cf, start, end)
+		if len(s) == 0 {
+			continue
+		}
+		kvs += cf + "@"
+		kvs += fmt.Sprint(s)
 	}
-	return
+	kvs += "}"
+	return kvs
 }
 
 func getRangeCF(txn *badger.Txn, cf string, startKey, endKey []byte) (kvs []string) {

@@ -172,8 +172,12 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		cfg.RaftLogGcCountLimit = uint64(maxraftlog)
 	}
 	if split {
-		cfg.RegionMaxSize = 300
-		cfg.RegionSplitSize = 200
+		// note: i modified this value, origin value is 300 which is too big for single client to trigger split
+		cfg.RegionMaxSize = 80 * uint64(nclients)
+		if cfg.RegionMaxSize > 300 {
+			cfg.RegionMaxSize = 300
+		}
+		cfg.RegionSplitSize = cfg.RegionMaxSize / 2
 	}
 	cluster := NewTestCluster(nservers, cfg)
 	cluster.Start()
@@ -250,7 +254,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			time.Sleep(electionTimeout)
 		}
 
-		log.Debugf("wait for clients\n")
+		log.Infof("wait for clients\n")
 		<-ch_clients
 
 		if crash {
@@ -272,11 +276,12 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			// log.Printf("read from clients %d\n", cli)
 			j := <-clnts[cli]
 
-			// if j < 10 {
-			// 	log.Printf("Warning: client %d managed to perform only %d put operations in 1 sec?\n", i, j)
-			// }
+			if j < 10 {
+				log.Warnf("Warning: client %d managed to perform only %d put operations in 1 sec?\n", i, j)
+			}
 			start := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", 0)
 			end := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", j)
+			log.Infof("GenericTest client %d scan result j=%d [%s,%s)", cli, j, string(start), string(end))
 			values := cluster.Scan([]byte(start), []byte(end))
 			v := string(bytes.Join(values, []byte("")))
 			checkClntAppends(t, cli, v, j)
@@ -699,6 +704,7 @@ func TestOneSplit3B(t *testing.T) {
 }
 
 func TestSplitRecover3B(t *testing.T) {
+	log.GetLogLevel()
 	// Test: restarts, snapshots, conf change, one client (3B) ...
 	GenericTest(t, "3B", 1, false, true, false, -1, false, true)
 }
