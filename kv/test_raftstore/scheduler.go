@@ -300,7 +300,7 @@ func (m *MockSchedulerClient) handleHeartbeatVersion(region *metapb.Region) erro
 	if engine_util.ExceedEndKey(region.GetStartKey(), region.GetEndKey()) {
 		panic("start key > end key")
 	}
-
+	log.Debugf("MockSchedulerClient handleHeartbeatVersion %v", region)
 	for {
 		searchRegion, _ := m.getRegionLocked(region.GetStartKey())
 		if searchRegion == nil {

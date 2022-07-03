@@ -377,6 +377,7 @@ func (p *peer) HeartbeatScheduler(ch chan<- worker.Task) {
 		PendingPeers:    p.CollectPendingPeers(),
 		ApproximateSize: p.ApproximateSize,
 	}
+	log.Debugf("%s finished HeartbeatScheduler", p.Tag)
 }
 
 func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {

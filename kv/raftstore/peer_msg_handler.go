@@ -64,7 +64,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		kvs := engine_util.GetRange(d.ctx.engine.Kv, result.Region.StartKey, result.Region.EndKey)
 		log.Infof("region state changed from %s to %s: kvs=%v", result.PrevRegion, result.Region, kvs)
 	}
-
+	d.peer.Send(d.ctx.trans, rd.Messages)
 	for _, ent := range rd.CommittedEntries {
 		if len(ent.Data) == 0 {
 			continue
@@ -87,7 +87,6 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		}
 	}
 	d.RaftGroup.Advance(rd)
-	d.peer.Send(d.ctx.trans, rd.Messages)
 }
 
 func (d *peerMsgHandler) applyNormal(ent eraftpb.Entry) *raft_cmdpb.RaftCmdResponse {
@@ -129,6 +128,7 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry) (resp *raft_cmdpb.Ra
 		util.RemovePeer(region, peer.StoreId)
 		d.removePeerCache(peer.Id)
 		if d.PeerId() == peer.Id && d.MaybeDestroy() {
+			// todo:
 			d.destroyPeer()
 			err = util.CloneMsg(region, resp.AdminResponse.ChangePeer.Region)
 			util.CheckErr(err)
@@ -231,7 +231,7 @@ func (d *peerMsgHandler) processPut(req *raft_cmdpb.PutRequest) (*raft_cmdpb.Put
 		return nil, err
 	}
 	resp := new(raft_cmdpb.PutResponse)
-	d.SizeDiffHint += uint64(len(req.Cf) + len(req.Key) + len(req.Value))
+	d.SizeDiffHint += uint64(len(req.Key) + len(req.Value))
 	return resp, err
 }
 
@@ -323,7 +323,7 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_c
 		d.Tag, d.storeID(), peer.Tag, region0.RegionEpoch,
 		region0.Id, string(region0.StartKey), string(region0.EndKey), region1.Id, string(region1.StartKey), string(region1.EndKey))
 	if d.IsLeader() {
-		// let one peer to notify PD that new region has been generated
+		// let a random peer to tell PD that new region has been generated
 		peer.HeartbeatScheduler(d.ctx.schedulerTaskSender)
 	}
 	return resp
@@ -845,10 +845,12 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	if approx+d.SizeDiffHint <= d.ctx.cfg.RegionMaxSize {
 		return
 	}
-	log.Infof("%s onSplitRegionCheckTick send check message: Approx=%v, hint=%v, splitMax=%d", d.Tag, approx, d.SizeDiffHint, d.ctx.cfg.RegionMaxSize)
+	log.Infof("%s onSplitRegionCheckTick send check message: (Approx=%v + hint=%v) splitMax=%d/%d",
+		d.Tag, approx, d.SizeDiffHint, d.ctx.cfg.RegionMaxSize, d.ctx.cfg.RegionSplitSize)
 	d.ctx.splitCheckTaskSender <- &runner.SplitCheckTask{
 		Region: d.Region(),
 	}
+	d.SizeDiffHint = 0
 }
 
 func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, splitKey []byte, cb *message.Callback) {

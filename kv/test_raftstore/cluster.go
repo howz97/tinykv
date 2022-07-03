@@ -181,7 +181,7 @@ func (c *Cluster) AllocPeer(storeID uint64) *metapb.Peer {
 }
 
 func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
-	log.Errorf("request start key=%s, %v", string(key), reqs[0])
+	log.Infof("request start key=%s, %v", string(key), reqs[0])
 	startTime := time.Now()
 	for i := 0; i < 10 || time.Since(startTime) < timeout; i++ {
 		region := c.GetRegion(key)
@@ -190,7 +190,7 @@ func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.D
 		resp, txn := c.CallCommandOnLeader(&req, timeout)
 		if resp == nil {
 			// it should be timeouted innerly
-			log.Infof("Cluster request failed, retry later...")
+			log.Infof("Cluster request failed, key=%s, retry later...", string(key))
 			SleepMS(100)
 			continue
 		}

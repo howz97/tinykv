@@ -657,7 +657,9 @@ func TestConfChangeSnapshotUnreliableRecoverConcurrentPartition3B(t *testing.T) 
 
 func TestOneSplit3B(t *testing.T) {
 	cfg := config.NewTestConfig()
-	cfg.RegionMaxSize = 800
+	// cfg.RegionMaxSize = 800
+	// test_modify: split trigger too late
+	cfg.RegionMaxSize = 700
 	cfg.RegionSplitSize = 500
 	cluster := NewTestCluster(5, cfg)
 	cluster.Start()
