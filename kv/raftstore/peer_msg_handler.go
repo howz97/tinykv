@@ -232,9 +232,6 @@ func (d *peerMsgHandler) processPut(req *raft_cmdpb.PutRequest) (*raft_cmdpb.Put
 	}
 	resp := new(raft_cmdpb.PutResponse)
 	d.SizeDiffHint += uint64(len(req.Cf) + len(req.Key) + len(req.Value))
-	if d.IsLeader() {
-		log.Infof("processPut succeed: all kvs=%v", engine_util.GetRange(d.ctx.engine.Kv, d.Region().StartKey, d.Region().EndKey))
-	}
 	return resp, err
 }
 
@@ -263,46 +260,60 @@ func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.
 		d.ScheduleCompactLog(req.CompactIndex)
 		resp.CompactLog = new(raft_cmdpb.CompactLogResponse)
 	case raft_cmdpb.AdminCmdType_Split:
-		region0 := d.Region()
-		if util.CheckKeyInRegion(req.Split.SplitKey, region0) != nil {
-			// split already executed
+		resp.Split = d.processAdminSplit(req.Split)
+	}
+	return resp
+}
+
+func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_cmdpb.SplitResponse {
+	if len(req.NewPeerIds) == 0 {
+		log.Errorf("split request is invalid: %s", req)
+		return nil
+	}
+	region0 := d.Region()
+	if util.CheckKeyInRegion(req.SplitKey, region0) != nil {
+		log.Warnf("split already executed")
+		return nil
+	}
+	// change meta data
+	region1 := &metapb.Region{
+		Id:       req.NewRegionId,
+		StartKey: req.SplitKey,
+		EndKey:   region0.EndKey,
+		RegionEpoch: &metapb.RegionEpoch{
+			ConfVer: region0.RegionEpoch.ConfVer,
+			Version: region0.RegionEpoch.Version + 1,
+		},
+	}
+	for i, id := range req.NewPeerIds {
+		if i >= len(region0.Peers) {
+			log.Warnf("%s config change occured during region split, current region=%s, req.NewPeerIds=%v",
+				d.Tag, region0, req.NewPeerIds)
 			break
 		}
-		// change meta data
-		region1 := &metapb.Region{
-			Id:       req.Split.NewRegionId,
-			StartKey: req.Split.SplitKey,
-			EndKey:   region0.EndKey,
-			RegionEpoch: &metapb.RegionEpoch{
-				ConfVer: region0.RegionEpoch.ConfVer,
-				Version: region0.RegionEpoch.Version + 1,
-			},
-		}
-		for i, id := range req.Split.NewPeerIds {
-			region1.Peers = append(region1.Peers, &metapb.Peer{
-				Id:      id,
-				StoreId: region0.Peers[i].StoreId,
-			})
-		}
-		region0.RegionEpoch.Version++
-		region0.EndKey = req.Split.SplitKey
-		engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region0.Id), &rspb.RegionLocalState{Region: region0})
-		engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region1.Id), &rspb.RegionLocalState{Region: region1})
-
-		// start peer of region1
-		peer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, region1)
-		util.CheckErr(err)
-		d.ctx.router.register(peer)
-		d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
-		err = d.ctx.router.send(region1.Id, message.Msg{Type: message.MsgTypeStart})
-		util.CheckErr(err)
-		// response
-		resp.Split = new(raft_cmdpb.SplitResponse)
-		resp.Split.Regions = append(resp.Split.Regions, util.CopyRegion(region0), util.CopyRegion(region1))
-		log.Infof("peer %s on store %v finished to split region, new peer=%v, epoch=%s, regions=(%d,%s...%s);(%d,%s...%s)",
-			d.Tag, d.storeID(), peer.Tag, region0.RegionEpoch,
-			region0.Id, string(region0.StartKey), string(region0.EndKey), region1.Id, string(region1.StartKey), string(region1.EndKey))
+		region1.Peers = append(region1.Peers, &metapb.Peer{
+			Id:      id,
+			StoreId: region0.Peers[i].StoreId, // todo: overflow
+		})
 	}
+	region0.RegionEpoch.Version++
+	region0.EndKey = req.SplitKey
+	engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region0.Id), &rspb.RegionLocalState{Region: region0})
+	engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region1.Id), &rspb.RegionLocalState{Region: region1})
+
+	// start peer of region1
+	peer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, region1)
+	util.CheckErr(err)
+	d.ctx.router.register(peer)
+	d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
+	err = d.ctx.router.send(region1.Id, message.Msg{Type: message.MsgTypeStart})
+	util.CheckErr(err)
+	// response
+	resp := new(raft_cmdpb.SplitResponse)
+	resp.Regions = append(resp.Regions, util.CopyRegion(region0), util.CopyRegion(region1))
+	log.Infof("peer %s on store %v finished to split region, new peer=%v, epoch=%s, regions=(%d,%s...%s);(%d,%s...%s)",
+		d.Tag, d.storeID(), peer.Tag, region0.RegionEpoch,
+		region0.Id, string(region0.StartKey), string(region0.EndKey), region1.Id, string(region1.StartKey), string(region1.EndKey))
 	return resp
 }
 

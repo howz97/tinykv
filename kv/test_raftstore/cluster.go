@@ -379,8 +379,7 @@ func (c *Cluster) Scan(start, end []byte) [][]byte {
 		}
 		region := resp.Responses[0].GetSnap().Region
 		if engine_util.ExceedEndKey(key, region.EndKey) {
-			log.Infof("region split occured during request, continue to request next region...")
-			key = region.EndKey
+			log.Infof("region split occured during request, retry to request next region...")
 			continue
 		}
 		iter := raft_storage.NewRegionReader(txn, *region).IterCF(engine_util.CfDefault)

@@ -174,8 +174,8 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 	if split {
 		// note: i modified this value, origin value is 300 which is too big for single client to trigger split
 		cfg.RegionMaxSize = 80 * uint64(nclients)
-		if cfg.RegionMaxSize > 300 {
-			cfg.RegionMaxSize = 300
+		if cfg.RegionMaxSize > 240 {
+			cfg.RegionMaxSize = 240
 		}
 		cfg.RegionSplitSize = cfg.RegionMaxSize / 2
 	}
@@ -208,7 +208,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			}()
 			last := ""
 			for atomic.LoadInt32(&done_clients) == 0 {
-				if (rand.Int() % 1000) < 500 {
+				if (rand.Int() % 1000) < 700 {
 					key := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", j)
 					value := "x " + strconv.Itoa(cli) + " " + strconv.Itoa(j) + " y"
 					log.Infof("%d: client new put %v,%v\n", cli, key, value)

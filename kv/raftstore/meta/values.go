@@ -76,16 +76,16 @@ func InitApplyState(kvEngine *badger.DB, region *metapb.Region) (*rspb.RaftApply
 	if err != nil && err != badger.ErrKeyNotFound {
 		return nil, err
 	}
-	log.Debugf("InitApplyState after GetApplyState %v", err)
+	log.Infof("InitApplyState after GetApplyState %v", err)
 	if err == badger.ErrKeyNotFound {
-		log.Debugf("InitApplyState apply key not found, len(peers)=%d, %s", len(region.Peers), region.String())
+		log.Infof("InitApplyState apply key not found, len(peers)=%d, %s", len(region.Peers), region.String())
 		applyState = new(rspb.RaftApplyState)
 		applyState.TruncatedState = new(rspb.RaftTruncatedState)
 		if len(region.Peers) > 0 {
 			applyState.AppliedIndex = RaftInitLogIndex
 			applyState.TruncatedState.Index = RaftInitLogIndex
 			applyState.TruncatedState.Term = RaftInitLogTerm
-			log.Debugf(" InitApplyState len(region.Peers) > 0, applyState=%s", applyState.String())
+			log.Infof(" InitApplyState len(region.Peers) > 0, applyState=%s", applyState.String())
 		}
 		err = engine_util.PutMeta(kvEngine, ApplyStateKey(region.Id), applyState)
 		if err != nil {

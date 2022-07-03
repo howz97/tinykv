@@ -52,7 +52,7 @@ type PeerStorage struct {
 
 // NewPeerStorage get the persist raftState from engines and return a peer storage
 func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task, tag string) (*PeerStorage, error) {
-	log.Debugf("%s creating storage for region %s", tag, region.String())
+	log.Infof("%s creating storage for region %s", tag, region.String())
 	raftState, err := meta.InitRaftLocalState(engines.Raft, region)
 	if err != nil {
 		return nil, err
@@ -61,7 +61,7 @@ func NewPeerStorage(engines *engine_util.Engines, region *metapb.Region, regionS
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("peer %s after InitApplyState applyState=%s", tag, applyState.String())
+	log.Infof("peer %s after InitApplyState applyState=%s", tag, applyState.String())
 	if raftState.LastIndex < applyState.AppliedIndex {
 		panic(fmt.Sprintf("%s unexpected raft log index: lastIndex %d < appliedIndex %d",
 			tag, raftState.LastIndex, applyState.AppliedIndex))

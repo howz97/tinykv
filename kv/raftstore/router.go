@@ -66,7 +66,7 @@ func (pr *router) send(regionID uint64, msg message.Msg) error {
 	if p == nil || atomic.LoadUint32(&p.closed) == 1 {
 		if regionID > 1 {
 			log.Infof("router send message to new region %d, peer not found, register=%v", regionID, pr.String())
-			if rand.Intn(200) == 0 {
+			if rand.Intn(300) == 111 {
 				panic("something wrong with router")
 			}
 		}
