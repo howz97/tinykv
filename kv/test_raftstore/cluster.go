@@ -181,7 +181,7 @@ func (c *Cluster) AllocPeer(storeID uint64) *metapb.Peer {
 }
 
 func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
-	log.Infof("request start key=%s, %v", string(key), reqs[0])
+	log.Infof("Cluster request start key=%s, %v", string(key), reqs[0])
 	startTime := time.Now()
 	for i := 0; i < 10 || time.Since(startTime) < timeout; i++ {
 		region := c.GetRegion(key)
@@ -195,11 +195,11 @@ func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.D
 			continue
 		}
 		if resp.Header.Error != nil {
-			log.Infof("Cluster request err=%v, retry...", resp.Header.Error)
+			log.Infof("Cluster request err=%v, key=%s, retry...", resp.Header.Error, string(key))
 			SleepMS(100)
 			continue
 		}
-		log.Infof("Cluster request %v finished, key=%s, target-region=%s, resp=%v", reqs[0], string(key), region, resp.Responses[0])
+		log.Infof("Cluster request finished req0=%v key=%s, target-region=%s, cost=%v", reqs[0], string(key), region, time.Since(startTime))
 		return resp, txn
 	}
 	log.Errorf("request timeout key=%s, %v", string(key), reqs[0])
@@ -380,10 +380,10 @@ func (c *Cluster) Scan(start, end []byte) [][]byte {
 			panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Snap")
 		}
 		region := resp.Responses[0].GetSnap().Region
-		if engine_util.ExceedEndKey(key, region.EndKey) {
-			log.Infof("region split occured during request, retry to request next region...")
-			continue
-		}
+		// if engine_util.ExceedEndKey(key, region.EndKey) {
+		// 	log.Infof("region split occured during request, retry to request next region...")
+		// 	continue
+		// }
 		iter := raft_storage.NewRegionReader(txn, *region).IterCF(engine_util.CfDefault)
 		for iter.Seek(key); iter.Valid(); iter.Next() {
 			if engine_util.ExceedEndKey(iter.Item().Key(), end) {

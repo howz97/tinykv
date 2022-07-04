@@ -93,6 +93,15 @@ func (d *peerMsgHandler) applyNormal(ent eraftpb.Entry) *raft_cmdpb.RaftCmdRespo
 	reqs := new(raft_cmdpb.RaftCmdRequest)
 	err := reqs.Unmarshal(ent.Data)
 	util.CheckErr(err)
+	if epoch := reqs.Header.GetRegionEpoch(); epoch != nil {
+		if epoch.Version != d.Region().RegionEpoch.Version {
+			err := &util.ErrEpochNotMatch{
+				Message: "maybe region split occured",
+				Regions: []*metapb.Region{util.CopyRegion(d.Region())},
+			}
+			return ErrResp(err)
+		}
+	}
 	resp, err := d.process(reqs)
 	if err != nil {
 		return ErrResp(err)
@@ -280,7 +289,7 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_c
 	storeMeta.Lock()
 	defer storeMeta.Unlock()
 	if _, ok := storeMeta.regions[req.NewRegionId]; ok {
-		log.Warnf("%s processAdminSplit but region already exist, maybe replicatePeer created it", d.Tag)
+		log.Errorf("%s processAdminSplit but new region already exist, maybe replicatePeer created it", d.Tag)
 		return nil
 	}
 	// change meta data
@@ -308,12 +317,15 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_c
 	region0.EndKey = req.SplitKey
 	engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region0.Id), &rspb.RegionLocalState{Region: region0})
 	engine_util.PutMeta(d.ctx.engine.Kv, meta.RegionStateKey(region1.Id), &rspb.RegionLocalState{Region: region1})
+	storeMeta.regions[region0.Id] = region0
+	storeMeta.regions[region1.Id] = region1
+	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region0})
+	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
 
 	// start peer of region1
 	peer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, region1)
 	util.CheckErr(err)
 	d.ctx.router.register(peer)
-	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
 	err = d.ctx.router.send(region1.Id, message.Msg{Type: message.MsgTypeStart})
 	util.CheckErr(err)
 	// response

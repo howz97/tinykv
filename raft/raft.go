@@ -35,6 +35,7 @@ type StateType uint64
 
 const (
 	StateFollower StateType = iota
+	StatePreCandidate
 	StateCandidate
 	StateLeader
 )
@@ -297,11 +298,19 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.Lead = lead
 	r.electionInterval = r.randTimeout()
 	r.campaignAfter = r.electionInterval
-	r.Vote = None
+	r.Vote = lead
 	r.tick = r.tickNormal
 	r.step = r.stepFollower
 	r.leadTransferee = None
-	log.Infof("raft state transfer: %s -> %s", bef, r)
+	log.Infof("raft state transfer: %s -> %s, campaignAfter=%v", bef, r, r.campaignAfter)
+}
+
+func (r *Raft) becomePreCandidate() {
+	bef := r.String()
+	r.State = StatePreCandidate
+	r.step = r.stepCandidate
+	log.Infof("raft state transfer: %s -> %s, campaignAfter=%v", bef, r, r.campaignAfter)
+	r.preVotes()
 }
 
 // becomeCandidate transform this peer's state to candidate
@@ -310,10 +319,15 @@ func (r *Raft) becomeCandidate() {
 	r.Term++
 	r.State = StateCandidate
 	r.step = r.stepCandidate
+	r.Lead = None
+	r.Vote = None
 	r.electionInterval = r.randTimeout()
 	r.campaignAfter = r.electionInterval
-	r.Lead = None
-	log.Infof("raft state transfer: %s -> %s", bef, r)
+	log.Infof("raft state transfer: %s -> %s, campaignAfter=%v", bef, r, r.campaignAfter)
+}
+
+func (r *Raft) preVotes() {
+	// todo:
 }
 
 func (r *Raft) requestVotes(force bool) {
@@ -407,8 +421,12 @@ func (r *Raft) Step(m pb.Message) error {
 func (r *Raft) stepFollower(m pb.Message) error {
 	switch m.MsgType {
 	case pb.MessageType_MsgHup:
-		r.becomeCandidate()
-		r.requestVotes(m.Reject)
+		if m.Force {
+			r.becomeCandidate()
+			r.requestVotes(true)
+		} else {
+			r.becomePreCandidate()
+		}
 	case pb.MessageType_MsgHeartbeat:
 		r.handleHeartbeat(m)
 	case pb.MessageType_MsgRequestVote:
@@ -421,7 +439,7 @@ func (r *Raft) stepFollower(m pb.Message) error {
 		r.sendMsg(r.Lead, &m)
 	case pb.MessageType_MsgTimeoutNow:
 		if _, ok := r.Prs[r.id]; ok {
-			r.Step(pb.Message{MsgType: pb.MessageType_MsgHup, Reject: true})
+			r.Step(pb.Message{MsgType: pb.MessageType_MsgHup, Force: true})
 		}
 	default:
 		log.Errorf("%s can not handle MessageType=%v", r, m.MsgType)
@@ -432,8 +450,7 @@ func (r *Raft) stepFollower(m pb.Message) error {
 func (r *Raft) stepCandidate(m pb.Message) error {
 	switch m.MsgType {
 	case pb.MessageType_MsgHup:
-		r.becomeCandidate()
-		r.requestVotes(false)
+		r.becomePreCandidate()
 	case pb.MessageType_MsgRequestVote:
 		r.handleRequestVote(m)
 	case pb.MessageType_MsgRequestVoteResponse:
@@ -739,12 +756,14 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 		MsgType: pb.MessageType_MsgRequestVoteResponse,
 	}
 	if r.Vote != None {
+		log.Infof("%s handleRequestVote from %v, r.Vote=%v Reject=%v", r, m.From, r.Vote, r.Vote != m.From)
 		resp.Reject = r.Vote != m.From
 		r.sendMsg(m.From, resp)
 		return
 	}
 	// did not vote until now, so check vote condition
 	if r.RaftLog.NewerThan(m.LogTerm, m.Index) {
+		log.Infof("%s handleRequestVote from %v, candidateLog=(t%d,i%d), Reject=true", r, m.From, m.LogTerm, m.Index)
 		resp.Reject = true
 		r.sendMsg(m.From, resp)
 		return
@@ -758,11 +777,13 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 	resp.Reject = false
 	r.Vote = m.From
 	r.sendMsg(m.From, resp)
+	log.Infof("%s handleRequestVote granted vote to %v .", r, m.From)
 }
 
 func (r *Raft) handleRequestVoteResp(m pb.Message) {
 	r.votes[m.From] = !m.Reject
 	n := r.voteNum()
+	log.Infof("%s handleRequestVoteResp from peer%v, reject=%v, current votes=%v", r, m.From, m.Reject, r.votes)
 	if n > len(r.Prs)/2 {
 		r.becomeLeader()
 	} else if len(r.votes)-n > len(r.Prs)/2 {

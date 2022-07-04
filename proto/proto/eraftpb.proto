@@ -51,6 +51,8 @@ enum MessageType {
     MsgAppend = 3;
     // 'MessageType_MsgAppendResponse' is response to log replication request('MessageType_MsgAppend').
     MsgAppendResponse = 4;
+    MsgPreVote = 13;
+    MsgPreVoteResp = 14;
     // 'MessageType_MsgRequestVote' requests votes for election.
     MsgRequestVote = 5;
     // 'MessageType_MsgRequestVoteResponse' contains responses from voting request.
@@ -79,6 +81,7 @@ message Message {
     uint64 commit = 8;
     Snapshot snapshot = 9;
     bool reject = 10;
+    bool force = 11;
 }
 
 // HardState contains the state of a node need to be peristed, including the current term, commit index 
