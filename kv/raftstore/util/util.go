@@ -65,7 +65,7 @@ func IsEpochStale(epoch *metapb.RegionEpoch, checkEpoch *metapb.RegionEpoch) boo
 
 func IsVoteMessage(msg *eraftpb.Message) bool {
 	tp := msg.GetMsgType()
-	return tp == eraftpb.MessageType_MsgRequestVote
+	return tp == eraftpb.MessageType_MsgRequestVote || tp == eraftpb.MessageType_MsgPreVote
 }
 
 /// `is_first_vote_msg` checks `msg` is the first vote message or not. It's used for
@@ -73,7 +73,8 @@ func IsVoteMessage(msg *eraftpb.Message) bool {
 /// region overlaps with others. In this case we should put `msg` into `pending_votes` instead of
 /// create the peer.
 func IsFirstVoteMessage(msg *eraftpb.Message) bool {
-	return IsVoteMessage(msg) && msg.Term == meta.RaftInitLogTerm+1
+	return msg.MsgType == eraftpb.MessageType_MsgRequestVote && msg.Term == meta.RaftInitLogTerm+1 ||
+		msg.MsgType == eraftpb.MessageType_MsgPreVote && msg.Term == meta.RaftInitLogTerm
 }
 
 func CheckRegionEpoch(req *raft_cmdpb.RaftCmdRequest, region *metapb.Region, includeRegion bool) error {

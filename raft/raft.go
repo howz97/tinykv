@@ -308,7 +308,10 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 func (r *Raft) becomePreCandidate() {
 	bef := r.String()
 	r.State = StatePreCandidate
-	r.step = r.stepCandidate
+	r.step = r.stepPreCandidate
+	r.Lead = None
+	r.electionInterval = r.randTimeout()
+	r.campaignAfter = r.electionInterval
 	log.Infof("raft state transfer: %s -> %s, campaignAfter=%v", bef, r, r.campaignAfter)
 	r.preVotes()
 }
@@ -327,7 +330,26 @@ func (r *Raft) becomeCandidate() {
 }
 
 func (r *Raft) preVotes() {
-	// todo:
+	r.votes = make(map[uint64]bool)
+	r.votes[r.id] = true
+	r.Vote = r.id
+	if len(r.Prs) == 1 {
+		r.becomeCandidate()
+		r.requestVotes(false)
+		return
+	}
+	logTerm, logIdx := r.RaftLog.LastEntry()
+	for to := range r.Prs {
+		if to == r.id {
+			continue
+		}
+		m := &pb.Message{
+			MsgType: pb.MessageType_MsgPreVote,
+			LogTerm: logTerm,
+			Index:   logIdx,
+		}
+		r.sendMsg(to, m)
+	}
 }
 
 func (r *Raft) requestVotes(force bool) {
@@ -347,7 +369,7 @@ func (r *Raft) requestVotes(force bool) {
 			MsgType: pb.MessageType_MsgRequestVote,
 			LogTerm: logTerm,
 			Index:   logIdx,
-			Reject:  force,
+			Force:   force,
 		}
 		r.sendMsg(to, m)
 	}
@@ -390,7 +412,7 @@ func (r *Raft) Step(m pb.Message) error {
 		} else if m.Term > r.Term {
 			// bigger term found
 			lead := m.From
-			if IsResponseMsg[m.MsgType] || m.MsgType == pb.MessageType_MsgRequestVote {
+			if IsResponseMsg[m.MsgType] || m.MsgType == pb.MessageType_MsgRequestVote || m.MsgType == pb.MessageType_MsgPreVote {
 				// leader not sure
 				lead = None
 			}
@@ -441,6 +463,20 @@ func (r *Raft) stepFollower(m pb.Message) error {
 		if _, ok := r.Prs[r.id]; ok {
 			r.Step(pb.Message{MsgType: pb.MessageType_MsgHup, Force: true})
 		}
+	default:
+		log.Errorf("%s can not handle MessageType=%v", r, m.MsgType)
+	}
+	return nil
+}
+
+func (r *Raft) stepPreCandidate(m pb.Message) error {
+	switch m.MsgType {
+	case pb.MessageType_MsgHup:
+		r.becomePreCandidate()
+	case pb.MessageType_MsgPreVote:
+		r.handleRequestVote(m)
+	case pb.MessageType_MsgPreVoteResp:
+		r.handleRequestVoteResp(m)
 	default:
 		log.Errorf("%s can not handle MessageType=%v", r, m.MsgType)
 	}
@@ -751,41 +787,54 @@ func (r *Raft) handleHeartBeatResp(m pb.Message) {
 	}
 }
 
+func (r *Raft) handlePreVote(m pb.Message) {
+
+}
+
+// m.MsgType is MessageType_MsgRequestVote or MessageType_MsgPreVote
 func (r *Raft) handleRequestVote(m pb.Message) {
 	resp := &pb.Message{
-		MsgType: pb.MessageType_MsgRequestVoteResponse,
+		MsgType: RespMsgOf[m.MsgType],
 	}
 	if r.Vote != None {
-		log.Infof("%s handleRequestVote from %v, r.Vote=%v Reject=%v", r, m.From, r.Vote, r.Vote != m.From)
+		log.Infof("%s handleRequestVote %v from %v, r.Vote=%v Reject=%v", r, m.MsgType, m.From, r.Vote, r.Vote != m.From)
 		resp.Reject = r.Vote != m.From
 		r.sendMsg(m.From, resp)
 		return
 	}
 	// did not vote until now, so check vote condition
 	if r.RaftLog.NewerThan(m.LogTerm, m.Index) {
-		log.Infof("%s handleRequestVote from %v, candidateLog=(t%d,i%d), Reject=true", r, m.From, m.LogTerm, m.Index)
+		log.Infof("%s handleRequestVote %v from %v, candidateLog=(t%d,i%d), Reject=true", r, m.MsgType, m.From, m.LogTerm, m.Index)
 		resp.Reject = true
 		r.sendMsg(m.From, resp)
 		return
 	}
-	// if !m.Reject && r.electionInterval-r.campaignAfter < r.electionTimeout {
+	// if !m.Force && r.electionInterval-r.campaignAfter < r.electionTimeout {
 	// 	log.Infof("%s reject vote for %d, force=%v, %d-%d<%d", r, m.From, m.Reject, r.electionInterval, r.campaignAfter, r.electionTimeout)
 	// 	resp.Reject = true
 	// 	r.sendMsg(m.From, resp)
 	// 	return
 	// }
 	resp.Reject = false
-	r.Vote = m.From
+	if m.MsgType == pb.MessageType_MsgRequestVote {
+		r.Vote = m.From
+	}
 	r.sendMsg(m.From, resp)
-	log.Infof("%s handleRequestVote granted vote to %v .", r, m.From)
+	log.Infof("%s handleRequestVote %v granted vote to %v .", r, m.MsgType, m.From)
 }
 
+// m.MsgType is MessageType_MsgRequestVoteResponse or MessageType_MsgPreVoteResp
 func (r *Raft) handleRequestVoteResp(m pb.Message) {
 	r.votes[m.From] = !m.Reject
 	n := r.voteNum()
-	log.Infof("%s handleRequestVoteResp from peer%v, reject=%v, current votes=%v", r, m.From, m.Reject, r.votes)
+	log.Infof("%s handleRequestVoteResp %v from peer%v, reject=%v, current votes=%v", r, m.MsgType, m.From, m.Reject, r.votes)
 	if n > len(r.Prs)/2 {
-		r.becomeLeader()
+		if m.MsgType == pb.MessageType_MsgRequestVoteResponse {
+			r.becomeLeader()
+		} else {
+			r.becomeCandidate()
+			r.requestVotes(false)
+		}
 	} else if len(r.votes)-n > len(r.Prs)/2 {
 		r.becomeFollower(r.Term, None)
 	}

@@ -328,6 +328,7 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_c
 	d.ctx.router.register(peer)
 	err = d.ctx.router.send(region1.Id, message.Msg{Type: message.MsgTypeStart})
 	util.CheckErr(err)
+
 	// response
 	resp := new(raft_cmdpb.SplitResponse)
 	resp.Regions = append(resp.Regions, util.CopyRegion(region0), util.CopyRegion(region1))
@@ -337,6 +338,18 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_c
 	if d.IsLeader() {
 		// let a random peer to tell PD that new region has been generated
 		peer.HeartbeatScheduler(d.ctx.schedulerTaskSender)
+	}
+	if len(storeMeta.pendingVotes) > 0 {
+		// region split finished, send pending votes if needed
+		pending := make([]*rspb.RaftMessage, 0, len(storeMeta.pendingVotes))
+		for _, msg := range storeMeta.pendingVotes {
+			if msg.RegionId == region1.Id {
+				d.ctx.router.send(msg.RegionId, message.NewPeerMsg(message.MsgTypeRaftMessage, msg.RegionId, msg))
+			} else {
+				pending = append(pending, msg)
+			}
+		}
+		storeMeta.pendingVotes = pending
 	}
 	return resp
 }

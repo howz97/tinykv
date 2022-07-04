@@ -125,6 +125,7 @@ func (d *storeWorker) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 			if _, ok := meta.regions[regionID]; ok {
 				return false, nil
 			}
+			// fixme: should here require exclusive lock ?
 			meta.pendingVotes = append(meta.pendingVotes, msg)
 			log.Infof("region %d doesn't exist yet, wait for it to be split.", regionID)
 			return true, nil

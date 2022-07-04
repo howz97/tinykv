@@ -118,6 +118,7 @@ func (p uint64Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 var IsResponseMsg = map[pb.MessageType]bool{
 	pb.MessageType_MsgAppendResponse:      true,
+	pb.MessageType_MsgPreVoteResp:         true,
 	pb.MessageType_MsgRequestVoteResponse: true,
 	pb.MessageType_MsgHeartbeatResponse:   true,
 }
@@ -136,6 +137,7 @@ func RaftNetMsg(t pb.MessageType) bool {
 // Be cautious to add new MessageType
 var RespMsgOf = map[pb.MessageType]pb.MessageType{
 	pb.MessageType_MsgAppend:      pb.MessageType_MsgAppendResponse,
+	pb.MessageType_MsgPreVote:     pb.MessageType_MsgPreVoteResp,
 	pb.MessageType_MsgRequestVote: pb.MessageType_MsgRequestVoteResponse,
 	pb.MessageType_MsgHeartbeat:   pb.MessageType_MsgHeartbeatResponse,
 }

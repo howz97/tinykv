@@ -1,5 +1,4 @@
-# SHELL := git-bash.exe
-# SHELL := powershell.exe
+SHELL := /bin/bash
 PROJECT=tinykv
 GOPATH ?= $(shell go env GOPATH)
 
@@ -8,9 +7,9 @@ ifeq "$(GOPATH)" ""
   $(error Please set the environment variable GOPATH before running `make`)
 endif
 
-GO                  := go
+GO                  := GO111MODULE=on go
 GOBUILD             := $(GO) build $(BUILD_FLAG) -tags codes
-GOTEST              := $(GO) test --count=1 --parallel=1 -p=1
+GOTEST              := $(GO) test -v --count=1 --parallel=1 -p=1
 TEST_CLEAN          := rm -rf /tmp/*test-raftstore*
 
 TEST_LDFLAGS        := ""
@@ -30,9 +29,7 @@ test:
 	@export TZ='Asia/Shanghai'; \
 	LOG_LEVEL=fatal $(GOTEST) -cover $(PACKAGES)
 
-# CURDIR := $(shell echo $$pwd.Path)
-# CURDIR := $(shell pwd)
-CURDIR := "C:\Users\zhanghow\code\tinykv"
+CURDIR := $(shell pwd)
 export PATH := $(CURDIR)/bin/:$(PATH)
 proto:
 	mkdir -p $(CURDIR)/bin
