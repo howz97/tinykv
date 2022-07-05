@@ -147,7 +147,8 @@ type Raft struct {
 	// number of ticks since it reached last heartbeatTimeout.
 	// only leader keeps heartbeatElapsed.
 	heartbeatElapsed int
-	electionInterval int
+	// number of ticks since it received last heartbeat from leader
+	withoutHeartbeat int
 	campaignAfter    int
 	// tick advances the internal logical clock by a single tick.
 	tick func()
@@ -202,6 +203,7 @@ func newRaft(c *Config) *Raft {
 		heartbeatTimeout: c.HeartbeatTick,
 		electionTimeout:  c.ElectionTick,
 	}
+	rf.campaignAfter = rf.randTimeout()
 	rf.becomeFollower(hardState.Term, None)
 	rf.Vote = hardState.Vote
 	log.Infof("Raft %s start...", rf)
@@ -257,10 +259,10 @@ func (r *Raft) sendHeartbeat(to uint64) {
 }
 
 func (r *Raft) tickNormal() {
+	r.withoutHeartbeat++
 	r.campaignAfter--
 	if r.campaignAfter <= 0 {
-		r.electionInterval = r.randTimeout()
-		r.campaignAfter = r.electionInterval
+		r.campaignAfter = r.randTimeout()
 		r.Step(pb.Message{
 			MsgType: pb.MessageType_MsgHup,
 			To:      r.id,
@@ -297,8 +299,6 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.State = StateFollower
 	r.Term = term
 	r.Lead = lead
-	r.electionInterval = r.randTimeout()
-	r.campaignAfter = r.electionInterval
 	r.Vote = lead
 	r.tick = r.tickNormal
 	r.step = r.stepFollower
@@ -311,8 +311,7 @@ func (r *Raft) becomePreCandidate() {
 	r.State = StatePreCandidate
 	r.step = r.stepPreCandidate
 	// use short electionInterval to retry quickly under unreliable network condition
-	r.electionInterval = r.electionTimeout
-	r.campaignAfter = r.electionInterval
+	r.campaignAfter = r.electionTimeout
 	log.Infof("raft state transfer: %s -> %s, campaignAfter=%v", bef, r, r.campaignAfter)
 	r.preVotes()
 }
@@ -325,8 +324,7 @@ func (r *Raft) becomeCandidate() {
 	r.step = r.stepCandidate
 	r.Lead = None
 	r.Vote = None
-	r.electionInterval = r.randTimeout()
-	r.campaignAfter = r.electionInterval
+	r.campaignAfter = r.randTimeout()
 	log.Infof("raft state transfer: %s -> %s, campaignAfter=%v", bef, r, r.campaignAfter)
 }
 
@@ -411,12 +409,7 @@ func (r *Raft) Step(m pb.Message) error {
 			return nil
 		} else if m.Term > r.Term {
 			// bigger term found
-			lead := m.From
-			if IsResponseMsg[m.MsgType] || m.MsgType == pb.MessageType_MsgRequestVote || m.MsgType == pb.MessageType_MsgPreVote {
-				// leader not sure
-				lead = None
-			}
-			r.becomeFollower(m.Term, lead)
+			r.becomeFollower(m.Term, None)
 			if IsResponseMsg[m.MsgType] {
 				// follower ignore response message
 				return nil
@@ -424,10 +417,10 @@ func (r *Raft) Step(m pb.Message) error {
 		}
 	}
 	// m.Term == r.Term
-	if m.MsgType == pb.MessageType_MsgHeartbeat ||
-		m.MsgType == pb.MessageType_MsgAppend ||
-		m.MsgType == pb.MessageType_MsgSnapshot {
+	if OnlyFromLeader[m.MsgType] {
 		// message from leader, and handled by follower
+		r.withoutHeartbeat = 0
+		r.campaignAfter = r.randTimeout()
 		switch r.State {
 		case StateFollower:
 			r.Lead = m.From
@@ -772,8 +765,8 @@ func (r *Raft) sendMsg(to uint64, m *pb.Message) {
 
 // handleHeartbeat handle Heartbeat RPC request
 func (r *Raft) handleHeartbeat(m pb.Message) {
-	r.electionInterval = r.randTimeout()
-	r.campaignAfter = r.electionInterval
+	r.withoutHeartbeat = 0
+	r.campaignAfter = r.randTimeout()
 	resp := &pb.Message{
 		MsgType: pb.MessageType_MsgHeartbeatResponse,
 	}
@@ -805,12 +798,13 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 		r.sendMsg(m.From, resp)
 		return
 	}
-	// if !m.Force && r.electionInterval-r.campaignAfter < r.electionTimeout {
-	// 	log.Infof("%s reject vote for %d, force=%v, %d-%d<%d", r, m.From, m.Reject, r.electionInterval, r.campaignAfter, r.electionTimeout)
-	// 	resp.Reject = true
-	// 	r.sendMsg(m.From, resp)
-	// 	return
-	// }
+	if !m.Force && r.withoutHeartbeat < r.electionTimeout {
+		log.Infof("%s handleRequestVote %v reject vote for %d, because it just received heartbeat at last %d(<%d) tick",
+			r, m.MsgType, m.From, r.withoutHeartbeat, r.electionTimeout)
+		resp.Reject = true
+		r.sendMsg(m.From, resp)
+		return
+	}
 	resp.Reject = false
 	if m.MsgType == pb.MessageType_MsgRequestVote {
 		r.Vote = m.From
@@ -833,6 +827,7 @@ func (r *Raft) handleRequestVoteResp(m pb.Message) {
 			r.requestVotes(false)
 		}
 	} else if len(r.votes)-n > len(r.Prs)/2 {
+		r.campaignAfter = r.randTimeout()
 		r.becomeFollower(r.Term, None)
 	}
 }

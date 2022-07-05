@@ -127,7 +127,14 @@ var IsLocalMsg = map[pb.MessageType]bool{
 	pb.MessageType_MsgHup:            true,
 	pb.MessageType_MsgBeat:           true,
 	pb.MessageType_MsgPropose:        true,
-	pb.MessageType_MsgTransferLeader: true,
+	pb.MessageType_MsgTransferLeader: true, // fixme: this maybe send from follower to leader
+}
+
+var OnlyFromLeader = map[pb.MessageType]bool{
+	pb.MessageType_MsgHeartbeat:  true,
+	pb.MessageType_MsgAppend:     true,
+	pb.MessageType_MsgSnapshot:   true,
+	pb.MessageType_MsgTimeoutNow: true,
 }
 
 func RaftNetMsg(t pb.MessageType) bool {

@@ -204,7 +204,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			}()
 			last := ""
 			for atomic.LoadInt32(&done_clients) == 0 {
-				if (rand.Int() % 1000) < 500 {
+				if (rand.Int() % 1000) < 600 {
 					key := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", j)
 					value := "x " + strconv.Itoa(cli) + " " + strconv.Itoa(j) + " y"
 					log.Infof("%d: client new put %v,%v\n", cli, key, value)
