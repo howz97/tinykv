@@ -93,15 +93,6 @@ func (d *peerMsgHandler) applyNormal(ent eraftpb.Entry) *raft_cmdpb.RaftCmdRespo
 	reqs := new(raft_cmdpb.RaftCmdRequest)
 	err := reqs.Unmarshal(ent.Data)
 	util.CheckErr(err)
-	if epoch := reqs.Header.GetRegionEpoch(); epoch != nil {
-		if epoch.Version != d.Region().RegionEpoch.Version {
-			err := &util.ErrEpochNotMatch{
-				Message: "maybe region split occured",
-				Regions: []*metapb.Region{util.CopyRegion(d.Region())},
-			}
-			return ErrResp(err)
-		}
-	}
 	resp, err := d.process(reqs)
 	if err != nil {
 		return ErrResp(err)
@@ -157,8 +148,7 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry) (resp *raft_cmdpb.Ra
 func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
 	resp := newCmdResp()
 	if reqs.AdminRequest != nil {
-		resp.AdminResponse = d.processAdmin(reqs.AdminRequest)
-		return resp, nil
+		return d.processAdmin(reqs)
 	}
 	for _, req := range reqs.Requests {
 		switch req.CmdType {
@@ -190,6 +180,13 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.R
 				Delete:  r,
 			})
 		case raft_cmdpb.CmdType_Snap:
+			if reqs.Header.RegionEpoch.Version != d.Region().RegionEpoch.Version {
+				err := &util.ErrEpochNotMatch{
+					Message: "region split occured",
+					Regions: []*metapb.Region{util.CopyRegion(d.Region())},
+				}
+				return nil, err
+			}
 			r, err := d.processSnap()
 			if err != nil {
 				return nil, err
@@ -253,25 +250,26 @@ func (d *peerMsgHandler) processDel(req *raft_cmdpb.DeleteRequest) (*raft_cmdpb.
 	return resp, err
 }
 
-func (d *peerMsgHandler) processAdmin(req *raft_cmdpb.AdminRequest) *raft_cmdpb.AdminResponse {
+func (d *peerMsgHandler) processAdmin(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
 	resp := &raft_cmdpb.AdminResponse{
-		CmdType: req.CmdType,
+		CmdType: reqs.AdminRequest.CmdType,
 	}
-	switch req.CmdType {
+	switch reqs.AdminRequest.CmdType {
 	case raft_cmdpb.AdminCmdType_CompactLog:
-		req := req.CompactLog
+		req := reqs.AdminRequest.CompactLog
 		d.peer.peerStorage.applyState.TruncatedState.Index = req.CompactIndex
 		d.peer.peerStorage.applyState.TruncatedState.Term = req.CompactTerm
 		err := engine_util.PutMeta(d.peerStorage.Engines.Kv, meta.ApplyStateKey(d.regionId), d.peer.peerStorage.applyState)
-		if err != nil {
-			log.Panicf("%v", err)
-		}
+		util.CheckErr(err)
 		d.ScheduleCompactLog(req.CompactIndex)
 		resp.CompactLog = new(raft_cmdpb.CompactLogResponse)
 	case raft_cmdpb.AdminCmdType_Split:
-		resp.Split = d.processAdminSplit(req.Split)
+		if util.IsEpochStale(reqs.Header.RegionEpoch, d.Region().RegionEpoch) {
+			return nil, &util.ErrEpochNotMatch{Message: "AdminCmdType_Split region epoch not match"}
+		}
+		resp.Split = d.processAdminSplit(reqs.AdminRequest.Split)
 	}
-	return resp
+	return &raft_cmdpb.RaftCmdResponse{AdminResponse: resp}, nil
 }
 
 func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_cmdpb.SplitResponse {
@@ -332,9 +330,8 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_c
 	// response
 	resp := new(raft_cmdpb.SplitResponse)
 	resp.Regions = append(resp.Regions, util.CopyRegion(region0), util.CopyRegion(region1))
-	log.Infof("peer %s on store %v finished to split region, new peer=%v, epoch=%s, regions=(%d,%s...%s);(%d,%s...%s)",
-		d.Tag, d.storeID(), peer.Tag, region0.RegionEpoch,
-		region0.Id, string(region0.StartKey), string(region0.EndKey), region1.Id, string(region1.StartKey), string(region1.EndKey))
+	log.Infof("peer %s on store %v finished to split region, new peer=%v, regions=%v ### %v",
+		d.Tag, d.storeID(), peer.Tag, region0, region1)
 	if d.IsLeader() {
 		// let a random peer to tell PD that new region has been generated
 		peer.HeartbeatScheduler(d.ctx.schedulerTaskSender)

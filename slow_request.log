@@ -1,0 +1,223 @@
+@@@ slow request start 
+2022/07/05 10:32:03.366003 cluster.go:184: [0;37m[info] Cluster request start key=3 00000000, cmd_type:Snap snap:<> [0m
+2022/07/05 10:32:03.366020 raft.go:756: [0;37m[info] [peer2,t6,StateLeader] leader updated commited index {[22](t6.i6)..(t6.i27),app=22,cmt=25}[0m
+2022/07/05 10:32:03.435442 raft.go:661: [0;37m[info] [peer1,t6,StateFollower] accept append entries: {[21](t6.i6)..(t6.i26),app=21,cmt=21} -> {[22](t6.i6)..(t6.i27),app=21,cmt=21}[0m
+2022/07/05 10:32:03.435466 raft.go:669: [0;37m[info] [peer1,t6,StateFollower] follower updated commited index 23[0m
+2022/07/05 10:32:03.460387 raft.go:921: [0;37m[info] [peer4,t6,StateFollower] advance: log={{[21](t6.i6)..(t6.i26),app=22,cmt=22},stabled=26}[0m
+2022/07/05 10:32:03.460474 raft.go:669: [0;37m[info] [peer4,t6,StateFollower] follower updated commited index 23[0m
+2022/07/05 10:32:03.460517 raft.go:661: [0;37m[info] [peer4,t6,StateFollower] accept append entries: {[21](t6.i6)..(t6.i26),app=22,cmt=23} -> {[22](t6.i6)..(t6.i27),app=22,cmt=23}[0m
+2022/07/05 10:32:03.460534 raft.go:669: [0;37m[info] [peer4,t6,StateFollower] follower updated commited index 24[0m
+2022/07/05 10:32:03.460559 raft.go:669: [0;37m[info] [peer4,t6,StateFollower] follower updated commited index 25[0m
+2022/07/05 10:32:03.460558 raft.go:921: [0;37m[info] [peer3,t6,StateFollower] advance: log={{[21](t6.i6)..(t6.i26),app=22,cmt=22},stabled=26}[0m
+2022/07/05 10:32:03.460591 raft.go:669: [0;37m[info] [peer3,t6,StateFollower] follower updated commited index 23[0m
+2022/07/05 10:32:03.460608 raft.go:661: [0;37m[info] [peer3,t6,StateFollower] accept append entries: {[21](t6.i6)..(t6.i26),app=22,cmt=23} -> {[22](t6.i6)..(t6.i27),app=22,cmt=23}[0m
+2022/07/05 10:32:03.460620 raft.go:669: [0;37m[info] [peer3,t6,StateFollower] follower updated commited index 24[0m
+2022/07/05 10:32:03.460647 raft.go:669: [0;37m[info] [peer3,t6,StateFollower] follower updated commited index 25[0m
+2022/07/05 10:32:03.460732 cluster.go:202: [0;37m[info] Cluster request finished req0=cmd_type:Put put:<cf:"default" key:"4 00000002" value:"x 4 2 y" >  key=4 00000002, target-region=id:1 region_epoch:<conf_ver:2 version:1 > peers:<id:2 store_id:2 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > , cost=427.467852ms[0m
+2022/07/05 10:32:03.460783 test_test.go:210: [0;37m[info] 4: client new put 4 00000003,x 4 3 y
+[0m
+2022/07/05 10:32:03.460794 cluster.go:184: [0;37m[info] Cluster request start key=4 00000003, cmd_type:Put put:<cf:"default" key:"4 00000003" value:"x 4 3 y" > [0m
+2022/07/05 10:32:03.498162 peer_msg_handler.go:131: [0;37m[info] peer [peer2,t6,StateLeader] applyConfChange(t6,i25) region 1: RemoveNode 2 .[0m
+@@@ leader2 remove self 
+2022/07/05 10:32:03.498192 peer_msg_handler.go:783: [0;37m[info] [region 1] 2 starts destroy[0m
+2022/07/05 10:32:03.498197 peer.go:207: [0;37m[info] [region 1] 2 begin to destroy[0m
+2022/07/05 10:32:03.498221 peer_storage.go:305: [0;37m[info] [region 1] clear peer 1 meta key 1 apply key 1 raft key and 22 raft logs, takes 12.101µs[0m
+2022/07/05 10:32:03.498257 cluster.go:202: [0;37m[info] Cluster request finished req0=cmd_type:Put put:<cf:"default" key:"2 00000002" value:"x 2 2 y" >  key=2 00000002, target-region=id:1 region_epoch:<conf_ver:2 version:1 > peers:<id:2 store_id:2 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > , cost=412.278131ms[0m
+2022/07/05 10:32:03.498271 test_test.go:210: [0;37m[info] 2: client new put 2 00000003,x 2 3 y
+[0m
+2022/07/05 10:32:03.498282 cluster.go:184: [0;37m[info] Cluster request start key=2 00000003, cmd_type:Put put:<cf:"default" key:"2 00000003" value:"x 2 3 y" > [0m
+2022/07/05 10:32:03.590964 raft.go:921: [0;37m[info] [peer1,t6,StateFollower] advance: log={{[22](t6.i6)..(t6.i27),app=23,cmt=23},stabled=27}[0m
+2022/07/05 10:32:03.590993 raft.go:669: [0;37m[info] [peer1,t6,StateFollower] follower updated commited index 24[0m
+2022/07/05 10:32:03.591005 raft.go:669: [0;37m[info] [peer1,t6,StateFollower] follower updated commited index 25[0m
+2022/07/05 10:32:03.615169 peer.go:235: [0;37m[info] [region 1] 2 destroy itself, takes 116.946469ms[0m
+2022/07/05 10:32:03.615334 cluster.go:198: [0;37m[info] Cluster request err=region_not_found:<region_id:1 > , key=1 00000000, retry...[0m
+2022/07/05 10:32:03.615348 cluster.go:198: [0;37m[info] Cluster request err=region_not_found:<region_id:1 > , key=0 00000001, retry...[0m
+2022/07/05 10:32:03.642421 peer_msg_handler.go:131: [0;37m[info] peer [peer3,t6,StateFollower] applyConfChange(t6,i25) region 1: RemoveNode 2 .[0m
+2022/07/05 10:32:03.642520 peer_msg_handler.go:149: [0;37m[info] peer [peer3,t6,StateFollower] applyConfChange(t6,i25), newest config id:1 region_epoch:<conf_ver:3 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > [0m
+2022/07/05 10:32:03.642692 peer_msg_handler.go:131: [0;37m[info] peer [peer4,t6,StateFollower] applyConfChange(t6,i25) region 1: RemoveNode 2 .[0m
+2022/07/05 10:32:03.642727 peer_msg_handler.go:149: [0;37m[info] peer [peer4,t6,StateFollower] applyConfChange(t6,i25), newest config id:1 region_epoch:<conf_ver:3 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > [0m
+2022/07/05 10:32:03.686743 region_task.go:137: [0;37m[info] succeed in deleting data in range. [regionId: 1, startKey: , endKey: ][0m
+2022/07/05 10:32:03.686837 raft.go:921: [0;37m[info] [peer3,t6,StateFollower] advance: log={{[22](t6.i6)..(t6.i27),app=25,cmt=25},stabled=27}[0m
+2022/07/05 10:32:03.687098 raft.go:921: [0;37m[info] [peer4,t6,StateFollower] advance: log={{[22](t6.i6)..(t6.i27),app=25,cmt=25},stabled=27}[0m
+2022/07/05 10:32:03.687296 store_worker.go:158: [0;37m[info] handle raft message. from_peer:1, to_peer:2, store:2, region:1, msg:msg_type:MsgAppendResponse to:2 from:1 term:6 index:27 commit:24 [0m
+2022/07/05 10:32:03.687360 store_worker.go:135: [0;37m[info] region 1 in tombstone state: state:Tombstone region:<id:1 region_epoch:<conf_ver:3 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > > [0m
+2022/07/05 10:32:03.687378 store_worker.go:140: [0;37m[info] tombstone peer receives a stale message. region_id:1, from_region_epoch:conf_ver:2 version:1 , current_region_epoch:conf_ver:3 version:1 , msg_type:MsgAppendResponse[0m
+2022/07/05 10:32:03.687386 peer_msg_handler.go:695: [0;37m[info] [region 1] raft message MsgAppendResponse is stale, current conf_ver:3 version:1  ignore it[0m
+2022/07/05 10:32:03.687399 store_worker.go:158: [0;37m[info] handle raft message. from_peer:1, to_peer:2, store:2, region:1, msg:msg_type:MsgAppendResponse to:2 from:1 term:6 index:27 commit:24 [0m
+2022/07/05 10:32:03.687455 store_worker.go:135: [0;37m[info] region 1 in tombstone state: state:Tombstone region:<id:1 region_epoch:<conf_ver:3 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > > [0m
+2022/07/05 10:32:03.687464 store_worker.go:140: [0;37m[info] tombstone peer receives a stale message. region_id:1, from_region_epoch:conf_ver:2 version:1 , current_region_epoch:conf_ver:3 version:1 , msg_type:MsgAppendResponse[0m
+2022/07/05 10:32:03.687471 peer_msg_handler.go:695: [0;37m[info] [region 1] raft message MsgAppendResponse is stale, current conf_ver:3 version:1  ignore it[0m
+2022/07/05 10:32:03.693271 peer_msg_handler.go:131: [0;37m[info] peer [peer1,t6,StateFollower] applyConfChange(t6,i25) region 1: RemoveNode 2 .[0m
+2022/07/05 10:32:03.693340 peer_msg_handler.go:149: [0;37m[info] peer [peer1,t6,StateFollower] applyConfChange(t6,i25), newest config id:1 region_epoch:<conf_ver:3 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > [0m
+2022/07/05 10:32:03.704551 raft.go:921: [0;37m[info] [peer1,t6,StateFollower] advance: log={{[22](t6.i6)..(t6.i27),app=25,cmt=25},stabled=27}[0m
+2022/07/05 10:32:04.070519 raft.go:315: [0;37m[info] raft state transfer: [peer1,t6,StateFollower] -> [peer1,t6,StatePreCandidate], campaignAfter=16[0m
+2022/07/05 10:32:04.070636 raft.go:818: [0;37m[info] [peer4,t6,StateFollower] handleRequestVote MsgPreVote granted vote to 1 .[0m
+2022/07/05 10:32:04.070640 raft.go:818: [0;37m[info] [peer3,t6,StateFollower] handleRequestVote MsgPreVote granted vote to 1 .[0m
+2022/07/05 10:32:04.070662 raft.go:825: [0;37m[info] [peer1,t6,StatePreCandidate] handleRequestVoteResp MsgPreVoteResp from peer4, reject=false, current votes=map[1:true 4:true][0m
+2022/07/05 10:32:04.070687 raft.go:329: [0;37m[info] raft state transfer: [peer1,t6,StatePreCandidate] -> [peer1,t7,StateCandidate], campaignAfter=17[0m
+2022/07/05 10:32:04.084555 raft.go:306: [0;37m[info] raft state transfer: [peer3,t6,StateFollower] -> [peer3,t7,StateFollower], campaignAfter=14[0m
+2022/07/05 10:32:04.084573 raft.go:306: [0;37m[info] raft state transfer: [peer4,t6,StateFollower] -> [peer4,t7,StateFollower], campaignAfter=15[0m
+2022/07/05 10:32:04.084590 raft.go:818: [0;37m[info] [peer3,t7,StateFollower] handleRequestVote MsgRequestVote granted vote to 1 .[0m
+2022/07/05 10:32:04.084601 raft.go:818: [0;37m[info] [peer4,t7,StateFollower] handleRequestVote MsgRequestVote granted vote to 1 .[0m
+2022/07/05 10:32:04.111343 raft.go:825: [0;37m[info] [peer1,t7,StateCandidate] handleRequestVoteResp MsgRequestVoteResponse from peer4, reject=false, current votes=map[1:true 4:true][0m
+2022/07/05 10:32:04.111366 raft.go:571: [0;37m[info] [peer1,t7,StateLeader] proposal (t7,i28)[0m
+
+
+
+
+@@@ peer1 become leader 
+2022/07/05 10:32:04.111380 raft.go:401: [0;37m[info] raft state transfer: [peer1,t7,StateCandidate] -> [peer1,t7,StateLeader], GroupSize=3, votes=map[1:true 4:true][0m
+2022/07/05 10:32:04.117812 raft.go:571: [0;37m[info] [peer1,t7,StateLeader] proposal (t7,i29)[0m
+2022/07/05 10:32:04.117890 raft.go:571: [0;37m[info] [peer1,t7,StateLeader] proposal (t7,i30)[0m
+2022/07/05 10:32:04.117893 raft.go:661: [0;37m[info] [peer4,t7,StateFollower] accept append entries: {[22](t6.i6)..(t6.i27),app=25,cmt=25} -> {[23](t6.i6)..(t7.i28),app=25,cmt=25}[0m
+2022/07/05 10:32:04.144788 peer_msg_handler.go:873: [0;37m[info] [region 1] 1 onSplitRegionCheckTick send check message: (Approx=300 + hint=187) splitMax=300/200[0m
+2022/07/05 10:32:04.144790 raft.go:661: [0;37m[info] [peer4,t7,StateFollower] accept append entries: {[23](t6.i6)..(t7.i28),app=25,cmt=25} -> {[24](t6.i6)..(t7.i29),app=25,cmt=25}[0m
+2022/07/05 10:32:04.144849 raft.go:661: [0;37m[info] [peer3,t7,StateFollower] accept append entries: {[22](t6.i6)..(t6.i27),app=25,cmt=25} -> {[25](t6.i6)..(t7.i30),app=25,cmt=25}[0m
+2022/07/05 10:32:04.144894 raft.go:661: [0;37m[info] [peer4,t7,StateFollower] accept append entries: {[24](t6.i6)..(t7.i29),app=25,cmt=25} -> {[25](t6.i6)..(t7.i30),app=25,cmt=25}[0m
+2022/07/05 10:32:04.144900 split_checker.go:45: [0;37m[info] executing split check worker.Task: [regionId: 1, startKey: , endKey: ][0m
+2022/07/05 10:32:04.144928 split_checker.go:92: [0;37m[info] region 1 splitCheck currentSize = 187, keyRange=[,)[0m
+2022/07/05 10:32:04.144857 raft.go:756: [0;37m[info] [peer1,t7,StateLeader] leader updated commited index {[25](t6.i6)..(t7.i30),app=25,cmt=28}[0m
+2022/07/05 10:32:04.145004 split_checker.go:69: [0;37m[info] no need to send, split key not found: [regionId: 1], kvs={default@[0 00000000:x 0 0 y 1 00000000:x 1 0 y 2 00000000:x 2 0 y 2 00000001:x 2 1 y 2 00000002:x 2 2 y 3 00000000:x 3 0 y 3 00000001:x 3 1 y 3 00000002:x 3 2 y 4 00000000:x 4 0 y 4 00000001:x 4 1 y 4 00000002:x 4 2 y]}[0m
+2022/07/05 10:32:04.145006 scheduler.go:388: [0;37m[info] handleHeartbeatConfVersion id:1 region_epoch:<conf_ver:2 version:1 > peers:<id:2 store_id:2 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 >  -> id:1 region_epoch:<conf_ver:3 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > [0m
+2022/07/05 10:32:04.173121 raft.go:669: [0;37m[info] [peer4,t7,StateFollower] follower updated commited index 28[0m
+2022/07/05 10:32:04.196997 raft.go:921: [0;37m[info] [peer1,t7,StateLeader] advance: log={{[25](t6.i6)..(t7.i30),app=28,cmt=28},stabled=30}[0m
+2022/07/05 10:32:04.197016 peer_msg_handler.go:931: [0;37m[info] [region 1] 1 onApproximateRegionSize(187)[0m
+2022/07/05 10:32:04.197029 raft.go:756: [0;37m[info] [peer1,t7,StateLeader] leader updated commited index {[25](t6.i6)..(t7.i30),app=28,cmt=30}[0m
+2022/07/05 10:32:04.252523 raft.go:669: [0;37m[info] [peer3,t7,StateFollower] follower updated commited index 30[0m
+2022/07/05 10:32:04.252612 raft.go:921: [0;37m[info] [peer4,t7,StateFollower] advance: log={{[25](t6.i6)..(t7.i30),app=28,cmt=28},stabled=30}[0m
+2022/07/05 10:32:04.252632 raft.go:669: [0;37m[info] [peer4,t7,StateFollower] follower updated commited index 30[0m
+2022/07/05 10:32:04.281219 peer_msg_handler.go:78: [0;37m[info] peer [region 1] 1 applied and response snap entry=(t7,i30)[0m
+2022/07/05 10:32:04.281260 raft.go:921: [0;37m[info] [peer1,t7,StateLeader] advance: log={{[25](t6.i6)..(t7.i30),app=30,cmt=30},stabled=30}[0m
+2022/07/05 10:32:04.281328 peer_msg_handler.go:489: [0;37m[info] proposalChangerPeer RemoveNode id:1 store_id:1 [0m
+@@@
+2022/07/05 10:32:04.281329 cluster.go:202: [0;37m[info] Cluster request finished req0=cmd_type:Put put:<cf:"default" key:"0 00000001" value:"x 0 1 y" >  key=0 00000001, target-region=id:1 region_epoch:<conf_ver:2 version:1 > peers:<id:2 store_id:2 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > , cost=1.023815625s[0m
+2022/07/05 10:32:04.281329 cluster.go:202: [0;37m[info] Cluster request finished req0=cmd_type:Snap snap:<>  key=1 00000000, target-region=id:1 region_epoch:<conf_ver:2 version:1 > peers:<id:2 store_id:2 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > , cost=1.109258045s[0m
+2022/07/05 10:32:04.281338 raft.go:564: [0;37m[info] [peer1,t7,StateLeader] proposal config change[0m
+2022/07/05 10:32:04.281345 test_test.go:217: [0;37m[info] 0: client new scan 0 00000000-0 00000002
+[0m
+2022/07/05 10:32:04.281350 raft.go:571: [0;37m[info] [peer1,t7,StateLeader] proposal (t7,i31)[0m
+2022/07/05 10:32:04.281355 cluster.go:371: [0;37m[info] Cluster Scan [0 00000000,0 00000002)[0m
+2022/07/05 10:32:04.281361 test_test.go:210: [0;37m[info] 1: client new put 1 00000001,x 1 1 y
+[0m
+2022/07/05 10:32:04.281364 cluster.go:184: [0;37m[info] Cluster request start key=0 00000000, cmd_type:Snap snap:<> [0m
+2022/07/05 10:32:04.281377 cluster.go:184: [0;37m[info] Cluster request start key=1 00000001, cmd_type:Put put:<cf:"default" key:"1 00000001" value:"x 1 1 y" > [0m
+2022/07/05 10:32:04.307892 raft.go:571: [0;37m[info] [peer1,t7,StateLeader] proposal (t7,i32)[0m
+2022/07/05 10:32:04.307952 raft.go:571: [0;37m[info] [peer1,t7,StateLeader] proposal (t7,i33)[0m
+2022/07/05 10:32:04.319283 raft.go:921: [0;37m[info] [peer4,t7,StateFollower] advance: log={{[25](t6.i6)..(t7.i30),app=30,cmt=30},stabled=30}[0m
+2022/07/05 10:32:04.367904 raft.go:921: [0;37m[info] [peer3,t7,StateFollower] advance: log={{[25](t6.i6)..(t7.i30),app=30,cmt=30},stabled=30}[0m
+2022/07/05 10:32:04.367988 raft.go:661: [0;37m[info] [peer3,t7,StateFollower] accept append entries: {[25](t6.i6)..(t7.i30),app=30,cmt=30} -> {[27](t6.i6)..(t7.i32),app=30,cmt=30}[0m
+2022/07/05 10:32:04.368016 raft.go:661: [0;37m[info] [peer4,t7,StateFollower] accept append entries: {[25](t6.i6)..(t7.i30),app=30,cmt=30} -> {[27](t6.i6)..(t7.i32),app=30,cmt=30}[0m
+2022/07/05 10:32:04.368085 raft.go:571: [0;37m[info] [peer1,t7,StateLeader] proposal (t7,i34)[0m
+2022/07/05 10:32:04.396485 peer_msg_handler.go:489: [0;37m[info] proposalChangerPeer RemoveNode id:1 store_id:1 [0m
+2022/07/05 10:32:04.396501 raft.go:560: [0;33m[warning] [peer1,t7,StateLeader] proposal config change but pending(31) not finish[0m
+2022/07/05 10:32:04.396509 peer_msg_handler.go:501: [0;31m[error] proposalChangerPeer failed raft proposal dropped[0m
+2022/07/05 10:32:04.396540 peer_msg_handler.go:489: [0;37m[info] proposalChangerPeer RemoveNode id:1 store_id:1 [0m
+2022/07/05 10:32:04.396550 raft.go:560: [0;33m[warning] [peer1,t7,StateLeader] proposal config change but pending(31) not finish[0m
+2022/07/05 10:32:04.396556 peer_msg_handler.go:501: [0;31m[error] proposalChangerPeer failed raft proposal dropped[0m
+2022/07/05 10:32:04.396606 raft.go:661: [0;37m[info] [peer3,t7,StateFollower] accept append entries: {[27](t6.i6)..(t7.i32),app=30,cmt=30} -> {[28](t6.i6)..(t7.i33),app=30,cmt=30}[0m
+2022/07/05 10:32:04.396642 raft.go:661: [0;37m[info] [peer3,t7,StateFollower] accept append entries: {[28](t6.i6)..(t7.i33),app=30,cmt=30} -> {[29](t6.i6)..(t7.i34),app=30,cmt=30}[0m
+2022/07/05 10:32:04.421035 peer_msg_handler.go:489: [0;37m[info] proposalChangerPeer RemoveNode id:1 store_id:1 [0m
+2022/07/05 10:32:04.421078 raft.go:560: [0;33m[warning] [peer1,t7,StateLeader] proposal config change but pending(31) not finish[0m
+2022/07/05 10:32:04.421082 peer_msg_handler.go:501: [0;31m[error] proposalChangerPeer failed raft proposal dropped[0m
+2022/07/05 10:32:04.423643 raft.go:661: [0;37m[info] [peer4,t7,StateFollower] accept append entries: {[27](t6.i6)..(t7.i32),app=30,cmt=30} -> {[28](t6.i6)..(t7.i33),app=30,cmt=30}[0m
+2022/07/05 10:32:04.423678 raft.go:661: [0;37m[info] [peer4,t7,StateFollower] accept append entries: {[28](t6.i6)..(t7.i33),app=30,cmt=30} -> {[29](t6.i6)..(t7.i34),app=30,cmt=30}[0m
+2022/07/05 10:32:04.423685 raft.go:756: [0;37m[info] [peer1,t7,StateLeader] leader updated commited index {[29](t6.i6)..(t7.i34),app=30,cmt=32}[0m
+2022/07/05 10:32:04.484005 raft.go:669: [0;37m[info] [peer3,t7,StateFollower] follower updated commited index 32[0m
+2022/07/05 10:32:04.484006 peer_msg_handler.go:131: [0;37m[info] peer [peer1,t7,StateLeader] applyConfChange(t7,i31) region 1: RemoveNode 1 .[0m
+
+
+
+
+@@@ leader1 remove self 
+2022/07/05 10:32:04.484128 peer_msg_handler.go:783: [0;37m[info] [region 1] 1 starts destroy[0m
+2022/07/05 10:32:04.484136 peer.go:207: [0;37m[info] [region 1] 1 begin to destroy[0m
+2022/07/05 10:32:04.484175 peer_storage.go:305: [0;37m[info] [region 1] clear peer 1 meta key 1 apply key 1 raft key and 29 raft logs, takes 30.953µs[0m
+2022/07/05 10:32:04.529400 peer_msg_handler.go:131: [0;37m[info] peer [peer3,t7,StateFollower] applyConfChange(t7,i31) region 1: RemoveNode 1 .[0m
+2022/07/05 10:32:04.529467 peer_msg_handler.go:149: [0;37m[info] peer [peer3,t7,StateFollower] applyConfChange(t7,i31), newest config id:1 region_epoch:<conf_ver:4 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > [0m
+2022/07/05 10:32:04.529584 peer.go:235: [0;37m[info] [region 1] 1 destroy itself, takes 45.444649ms[0m
+2022/07/05 10:32:04.529663 cluster.go:198: [0;37m[info] Cluster request err=region_not_found:<region_id:1 > , key=0 00000000, retry...[0m
+2022/07/05 10:32:04.529663 cluster.go:198: [0;37m[info] Cluster request err=region_not_found:<region_id:1 > , key=3 00000000, retry...[0m
+2022/07/05 10:32:04.529661 cluster.go:198: [0;37m[info] Cluster request err=region_not_found:<region_id:1 > , key=1 00000001, retry...[0m
+2022/07/05 10:32:04.535910 raft.go:921: [0;37m[info] [peer3,t7,StateFollower] advance: log={{[29](t6.i6)..(t7.i34),app=32,cmt=32},stabled=34}[0m
+2022/07/05 10:32:04.547366 region_task.go:137: [0;37m[info] succeed in deleting data in range. [regionId: 1, startKey: , endKey: ][0m
+2022/07/05 10:32:05.071613 raft.go:315: [0;37m[info] raft state transfer: [peer4,t7,StateFollower] -> [peer4,t7,StatePreCandidate], campaignAfter=11[0m
+2022/07/05 10:32:05.071729 store_worker.go:158: [0;37m[info] handle raft message. from_peer:4, to_peer:1, store:1, region:1, msg:msg_type:MsgPreVote to:1 from:4 term:7 log_term:7 index:34 commit:30 [0m
+2022/07/05 10:32:05.071772 store_worker.go:135: [0;37m[info] region 1 in tombstone state: state:Tombstone region:<id:1 region_epoch:<conf_ver:4 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > > [0m
+2022/07/05 10:32:05.071788 store_worker.go:140: [0;37m[info] tombstone peer receives a stale message. region_id:1, from_region_epoch:conf_ver:3 version:1 , current_region_epoch:conf_ver:4 version:1 , msg_type:MsgPreVote[0m
+2022/07/05 10:32:05.071800 peer_msg_handler.go:695: [0;37m[info] [region 1] raft message MsgPreVote is stale, current conf_ver:4 version:1  ignore it[0m
+2022/07/05 10:32:05.271363 raft.go:315: [0;37m[info] raft state transfer: [peer3,t7,StateFollower] -> [peer3,t7,StatePreCandidate], campaignAfter=14[0m
+2022/07/05 10:32:05.621645 raft.go:315: [0;37m[info] raft state transfer: [peer4,t7,StatePreCandidate] -> [peer4,t7,StatePreCandidate], campaignAfter=11[0m
+2022/07/05 10:32:05.621735 raft.go:818: [0;37m[info] [peer3,t7,StatePreCandidate] handleRequestVote MsgPreVote granted vote to 4 .[0m
+2022/07/05 10:32:05.971360 raft.go:315: [0;37m[info] raft state transfer: [peer3,t7,StatePreCandidate] -> [peer3,t7,StatePreCandidate], campaignAfter=11[0m
+2022/07/05 10:32:05.971410 raft.go:818: [0;37m[info] [peer4,t7,StatePreCandidate] handleRequestVote MsgPreVote granted vote to 3 .[0m
+2022/07/05 10:32:06.171646 raft.go:315: [0;37m[info] raft state transfer: [peer4,t7,StatePreCandidate] -> [peer4,t7,StatePreCandidate], campaignAfter=19[0m
+2022/07/05 10:32:06.171738 raft.go:818: [0;37m[info] [peer3,t7,StatePreCandidate] handleRequestVote MsgPreVote granted vote to 4 .[0m
+2022/07/05 10:32:06.171769 store_worker.go:158: [0;37m[info] handle raft message. from_peer:4, to_peer:1, store:1, region:1, msg:msg_type:MsgPreVote to:1 from:4 term:7 log_term:7 index:34 commit:30 [0m
+2022/07/05 10:32:06.171804 store_worker.go:135: [0;37m[info] region 1 in tombstone state: state:Tombstone region:<id:1 region_epoch:<conf_ver:4 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > > [0m
+2022/07/05 10:32:06.171821 store_worker.go:140: [0;37m[info] tombstone peer receives a stale message. region_id:1, from_region_epoch:conf_ver:3 version:1 , current_region_epoch:conf_ver:4 version:1 , msg_type:MsgPreVote[0m
+2022/07/05 10:32:06.171831 peer_msg_handler.go:695: [0;37m[info] [region 1] raft message MsgPreVote is stale, current conf_ver:4 version:1  ignore it[0m
+2022/07/05 10:32:06.521320 raft.go:315: [0;37m[info] raft state transfer: [peer3,t7,StatePreCandidate] -> [peer3,t7,StatePreCandidate], campaignAfter=14[0m
+2022/07/05 10:32:07.121604 raft.go:315: [0;37m[info] raft state transfer: [peer4,t7,StatePreCandidate] -> [peer4,t7,StatePreCandidate], campaignAfter=17[0m
+2022/07/05 10:32:07.121726 raft.go:818: [0;37m[info] [peer3,t7,StatePreCandidate] handleRequestVote MsgPreVote granted vote to 4 .[0m
+2022/07/05 10:32:07.221315 raft.go:315: [0;37m[info] raft state transfer: [peer3,t7,StatePreCandidate] -> [peer3,t7,StatePreCandidate], campaignAfter=15[0m
+2022/07/05 10:32:07.221419 raft.go:818: [0;37m[info] [peer4,t7,StatePreCandidate] handleRequestVote MsgPreVote granted vote to 3 .[0m
+2022/07/05 10:32:07.971304 raft.go:315: [0;37m[info] raft state transfer: [peer3,t7,StatePreCandidate] -> [peer3,t7,StatePreCandidate], campaignAfter=10[0m
+2022/07/05 10:32:07.971353 raft.go:818: [0;37m[info] [peer4,t7,StatePreCandidate] handleRequestVote MsgPreVote granted vote to 3 .[0m
+2022/07/05 10:32:07.971467 raft.go:825: [0;37m[info] [peer3,t7,StatePreCandidate] handleRequestVoteResp MsgPreVoteResp from peer4, reject=false, current votes=map[3:true 4:true][0m
+@@@ preCandidate become preCandidate again and again, 3 seconds elapsed !
+2022/07/05 10:32:07.971481 raft.go:329: [0;37m[info] raft state transfer: [peer3,t7,StatePreCandidate] -> [peer3,t8,StateCandidate], campaignAfter=13[0m
+2022/07/05 10:32:07.971868 raft.go:315: [0;37m[info] raft state transfer: [peer4,t7,StatePreCandidate] -> [peer4,t7,StatePreCandidate], campaignAfter=17[0m
+2022/07/05 10:32:07.971895 store_worker.go:158: [0;37m[info] handle raft message. from_peer:4, to_peer:1, store:1, region:1, msg:msg_type:MsgPreVote to:1 from:4 term:7 log_term:7 index:34 commit:30 [0m
+2022/07/05 10:32:07.971916 store_worker.go:135: [0;37m[info] region 1 in tombstone state: state:Tombstone region:<id:1 region_epoch:<conf_ver:4 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > > [0m
+2022/07/05 10:32:07.971924 store_worker.go:140: [0;37m[info] tombstone peer receives a stale message. region_id:1, from_region_epoch:conf_ver:3 version:1 , current_region_epoch:conf_ver:4 version:1 , msg_type:MsgPreVote[0m
+2022/07/05 10:32:07.971930 peer_msg_handler.go:695: [0;37m[info] [region 1] raft message MsgPreVote is stale, current conf_ver:4 version:1  ignore it[0m
+2022/07/05 10:32:08.002196 raft.go:306: [0;37m[info] raft state transfer: [peer4,t7,StatePreCandidate] -> [peer4,t8,StateFollower], campaignAfter=10[0m
+2022/07/05 10:32:08.002238 raft.go:818: [0;37m[info] [peer4,t8,StateFollower] handleRequestVote MsgRequestVote granted vote to 3 .[0m
+2022/07/05 10:32:08.002268 raft.go:466: [0;31m[error] [peer4,t8,StateFollower] can not handle MessageType=MsgPreVoteResp[0m
+2022/07/05 10:32:08.016690 raft.go:825: [0;37m[info] [peer3,t8,StateCandidate] handleRequestVoteResp MsgRequestVoteResponse from peer4, reject=false, current votes=map[3:true 4:true][0m
+2022/07/05 10:32:08.016769 raft.go:571: [0;37m[info] [peer3,t8,StateLeader] proposal (t8,i35)[0m
+2022/07/05 10:32:08.016788 raft.go:401: [0;37m[info] raft state transfer: [peer3,t8,StateCandidate] -> [peer3,t8,StateLeader], GroupSize=2, votes=map[3:true 4:true][0m
+@@@ peer3 become leader 
+
+
+
+2022/07/05 10:32:08.024219 raft.go:571: [0;37m[info] [peer3,t8,StateLeader] proposal (t8,i36)[0m
+2022/07/05 10:32:08.024235 raft.go:571: [0;37m[info] [peer3,t8,StateLeader] proposal (t8,i37)[0m
+2022/07/05 10:32:08.024261 raft.go:571: [0;37m[info] [peer3,t8,StateLeader] proposal (t8,i38)[0m
+2022/07/05 10:32:08.024239 raft.go:661: [0;37m[info] [peer4,t8,StateFollower] accept append entries: {[29](t6.i6)..(t7.i34),app=30,cmt=30} -> {[30](t6.i6)..(t8.i35),app=30,cmt=30}[0m
+2022/07/05 10:32:08.024283 raft.go:571: [0;37m[info] [peer3,t8,StateLeader] proposal (t8,i39)[0m
+2022/07/05 10:32:08.024284 raft.go:669: [0;37m[info] [peer4,t8,StateFollower] follower updated commited index 32[0m
+2022/07/05 10:32:08.024291 raft.go:571: [0;37m[info] [peer3,t8,StateLeader] proposal (t8,i40)[0m
+2022/07/05 10:32:08.024346 peer_msg_handler.go:873: [0;37m[info] [region 1] 3 onSplitRegionCheckTick send check message: (Approx=300 + hint=221) splitMax=300/200[0m
+2022/07/05 10:32:08.024450 split_checker.go:45: [0;37m[info] executing split check worker.Task: [regionId: 1, startKey: , endKey: ][0m
+2022/07/05 10:32:08.024475 split_checker.go:92: [0;37m[info] region 1 splitCheck currentSize = 204, keyRange=[,)[0m
+2022/07/05 10:32:08.024493 scheduler.go:388: [0;37m[info] handleHeartbeatConfVersion id:1 region_epoch:<conf_ver:3 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 >  -> id:1 region_epoch:<conf_ver:4 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > [0m
+2022/07/05 10:32:08.024591 split_checker.go:69: [0;37m[info] no need to send, split key not found: [regionId: 1], kvs={default@[0 00000000:x 0 0 y 0 00000001:x 0 1 y 1 00000000:x 1 0 y 2 00000000:x 2 0 y 2 00000001:x 2 1 y 2 00000002:x 2 2 y 3 00000000:x 3 0 y 3 00000001:x 3 1 y 3 00000002:x 3 2 y 4 00000000:x 4 0 y 4 00000001:x 4 1 y 4 00000002:x 4 2 y]}[0m
+2022/07/05 10:32:08.047109 peer_msg_handler.go:931: [0;37m[info] [region 1] 3 onApproximateRegionSize(204)[0m
+2022/07/05 10:32:08.060739 peer_msg_handler.go:131: [0;37m[info] peer [peer4,t8,StateFollower] applyConfChange(t7,i31) region 1: RemoveNode 1 .[0m
+2022/07/05 10:32:08.060809 peer_msg_handler.go:149: [0;37m[info] peer [peer4,t8,StateFollower] applyConfChange(t7,i31), newest config id:1 region_epoch:<conf_ver:4 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > [0m
+2022/07/05 10:32:08.060858 raft.go:756: [0;37m[info] [peer3,t8,StateLeader] leader updated commited index {[35](t6.i6)..(t8.i40),app=32,cmt=35}[0m
+2022/07/05 10:32:08.074922 raft.go:921: [0;37m[info] [peer4,t8,StateFollower] advance: log={{[30](t6.i6)..(t8.i35),app=32,cmt=32},stabled=35}[0m
+2022/07/05 10:32:08.074960 raft.go:661: [0;37m[info] [peer4,t8,StateFollower] accept append entries: {[30](t6.i6)..(t8.i35),app=32,cmt=32} -> {[31](t6.i6)..(t8.i36),app=32,cmt=32}[0m
+2022/07/05 10:32:08.074991 raft.go:661: [0;37m[info] [peer4,t8,StateFollower] accept append entries: {[31](t6.i6)..(t8.i36),app=32,cmt=32} -> {[32](t6.i6)..(t8.i37),app=32,cmt=32}[0m
+2022/07/05 10:32:08.075013 raft.go:661: [0;37m[info] [peer4,t8,StateFollower] accept append entries: {[32](t6.i6)..(t8.i37),app=32,cmt=32} -> {[33](t6.i6)..(t8.i38),app=32,cmt=32}[0m
+2022/07/05 10:32:08.075033 raft.go:661: [0;37m[info] [peer4,t8,StateFollower] accept append entries: {[33](t6.i6)..(t8.i38),app=32,cmt=32} -> {[34](t6.i6)..(t8.i39),app=32,cmt=32}[0m
+2022/07/05 10:32:08.075043 raft.go:661: [0;37m[info] [peer4,t8,StateFollower] accept append entries: {[34](t6.i6)..(t8.i39),app=32,cmt=32} -> {[35](t6.i6)..(t8.i40),app=32,cmt=32}[0m
+2022/07/05 10:32:08.091052 raft.go:669: [0;37m[info] [peer4,t8,StateFollower] follower updated commited index 35[0m
+2022/07/05 10:32:08.113305 raft.go:921: [0;37m[info] [peer3,t8,StateLeader] advance: log={{[35](t6.i6)..(t8.i40),app=35,cmt=35},stabled=40}[0m
+2022/07/05 10:32:08.113340 raft.go:756: [0;37m[info] [peer3,t8,StateLeader] leader updated commited index {[35](t6.i6)..(t8.i40),app=35,cmt=36}[0m
+2022/07/05 10:32:08.113364 raft.go:756: [0;37m[info] [peer3,t8,StateLeader] leader updated commited index {[35](t6.i6)..(t8.i40),app=35,cmt=37}[0m
+2022/07/05 10:32:08.113391 raft.go:756: [0;37m[info] [peer3,t8,StateLeader] leader updated commited index {[35](t6.i6)..(t8.i40),app=35,cmt=38}[0m
+2022/07/05 10:32:08.113401 raft.go:756: [0;37m[info] [peer3,t8,StateLeader] leader updated commited index {[35](t6.i6)..(t8.i40),app=35,cmt=39}[0m
+2022/07/05 10:32:08.113411 raft.go:756: [0;37m[info] [peer3,t8,StateLeader] leader updated commited index {[35](t6.i6)..(t8.i40),app=35,cmt=40}[0m
+2022/07/05 10:32:08.132891 test_test.go:253: [0;37m[info] wait for clients
+[0m
+2022/07/05 10:32:08.168903 raft.go:921: [0;37m[info] [peer4,t8,StateFollower] advance: log={{[35](t6.i6)..(t8.i40),app=35,cmt=35},stabled=40}[0m
+2022/07/05 10:32:08.169112 peer_msg_handler.go:78: [0;37m[info] peer [region 1] 3 applied and response snap entry=(t8,i36)[0m
+2022/07/05 10:32:08.169136 raft.go:669: [0;37m[info] [peer4,t8,StateFollower] follower updated commited index 36[0m
+2022/07/05 10:32:08.169165 raft.go:669: [0;37m[info] [peer4,t8,StateFollower] follower updated commited index 37[0m
+2022/07/05 10:32:08.169196 raft.go:669: [0;37m[info] [peer4,t8,StateFollower] follower updated commited index 38[0m
+2022/07/05 10:32:08.169206 raft.go:669: [0;37m[info] [peer4,t8,StateFollower] follower updated commited index 39[0m
+2022/07/05 10:32:08.169221 raft.go:669: [0;37m[info] [peer4,t8,StateFollower] follower updated commited index 40[0m
+2022/07/05 10:32:08.169271 cluster.go:202: [0;37m[info] Cluster request finished req0=cmd_type:Snap snap:<>  key=3 00000000, target-region=id:1 region_epoch:<conf_ver:3 version:1 > peers:<id:3 store_id:3 > peers:<id:4 store_id:4 > peers:<id:1 store_id:1 > , cost=4.803192373s[0m
+@@@ slow request finished 

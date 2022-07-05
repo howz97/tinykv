@@ -209,7 +209,7 @@ func RegionEqual(l, r *metapb.Region) bool {
 
 func CheckErr(err error) {
 	if err != nil {
-		panic(err)
+		log.Panic(err)
 	}
 }
 

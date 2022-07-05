@@ -42,6 +42,7 @@ const (
 
 var stmap = [...]string{
 	"StateFollower",
+	"StatePreCandidate",
 	"StateCandidate",
 	"StateLeader",
 }
@@ -309,8 +310,8 @@ func (r *Raft) becomePreCandidate() {
 	bef := r.String()
 	r.State = StatePreCandidate
 	r.step = r.stepPreCandidate
-	r.Lead = None
-	r.electionInterval = r.randTimeout()
+	// use short electionInterval to retry quickly under unreliable network condition
+	r.electionInterval = r.electionTimeout
 	r.campaignAfter = r.electionInterval
 	log.Infof("raft state transfer: %s -> %s, campaignAfter=%v", bef, r, r.campaignAfter)
 	r.preVotes()
@@ -332,7 +333,6 @@ func (r *Raft) becomeCandidate() {
 func (r *Raft) preVotes() {
 	r.votes = make(map[uint64]bool)
 	r.votes[r.id] = true
-	r.Vote = r.id
 	if len(r.Prs) == 1 {
 		r.becomeCandidate()
 		r.requestVotes(false)
@@ -431,7 +431,7 @@ func (r *Raft) Step(m pb.Message) error {
 		switch r.State {
 		case StateFollower:
 			r.Lead = m.From
-		case StateCandidate:
+		case StatePreCandidate, StateCandidate:
 			r.becomeFollower(m.Term, m.From)
 		default:
 			panic("unexpected role")
@@ -451,7 +451,7 @@ func (r *Raft) stepFollower(m pb.Message) error {
 		}
 	case pb.MessageType_MsgHeartbeat:
 		r.handleHeartbeat(m)
-	case pb.MessageType_MsgRequestVote:
+	case pb.MessageType_MsgPreVote, pb.MessageType_MsgRequestVote:
 		r.handleRequestVote(m)
 	case pb.MessageType_MsgAppend:
 		r.handleAppendEntries(m)
@@ -787,16 +787,12 @@ func (r *Raft) handleHeartBeatResp(m pb.Message) {
 	}
 }
 
-func (r *Raft) handlePreVote(m pb.Message) {
-
-}
-
 // m.MsgType is MessageType_MsgRequestVote or MessageType_MsgPreVote
 func (r *Raft) handleRequestVote(m pb.Message) {
 	resp := &pb.Message{
 		MsgType: RespMsgOf[m.MsgType],
 	}
-	if r.Vote != None {
+	if m.MsgType == pb.MessageType_MsgRequestVote && r.Vote != None {
 		log.Infof("%s handleRequestVote %v from %v, r.Vote=%v Reject=%v", r, m.MsgType, m.From, r.Vote, r.Vote != m.From)
 		resp.Reject = r.Vote != m.From
 		r.sendMsg(m.From, resp)
@@ -827,7 +823,8 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 func (r *Raft) handleRequestVoteResp(m pb.Message) {
 	r.votes[m.From] = !m.Reject
 	n := r.voteNum()
-	log.Infof("%s handleRequestVoteResp %v from peer%v, reject=%v, current votes=%v", r, m.MsgType, m.From, m.Reject, r.votes)
+	log.Infof("%s handleRequestVoteResp %v from peer%v, reject=%v, current votes=%v, goupSize=%d",
+		r, m.MsgType, m.From, m.Reject, r.votes, len(r.Prs))
 	if n > len(r.Prs)/2 {
 		if m.MsgType == pb.MessageType_MsgRequestVoteResponse {
 			r.becomeLeader()
