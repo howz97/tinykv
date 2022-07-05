@@ -202,6 +202,7 @@ func newRaft(c *Config) *Raft {
 		Lead:             None,
 		heartbeatTimeout: c.HeartbeatTick,
 		electionTimeout:  c.ElectionTick,
+		withoutHeartbeat: c.ElectionTick,
 	}
 	rf.campaignAfter = rf.randTimeout()
 	rf.becomeFollower(hardState.Term, None)
