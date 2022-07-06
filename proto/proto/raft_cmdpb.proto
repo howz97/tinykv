@@ -128,6 +128,8 @@ message RaftRequestHeader {
     metapb.Peer peer = 2;
     metapb.RegionEpoch region_epoch = 4;
     uint64 term = 5;
+    uint64 client = 6;
+    uint64 serial = 7;
 }
 
 message RaftResponseHeader {

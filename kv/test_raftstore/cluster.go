@@ -180,13 +180,15 @@ func (c *Cluster) AllocPeer(storeID uint64) *metapb.Peer {
 	return NewPeer(storeID, id)
 }
 
-func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
+func (c *Cluster) Request(client uint64, key []byte, reqs []*raft_cmdpb.Request, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
 	log.Infof("Cluster request start key=%s, %v", string(key), reqs[0])
 	startTime := time.Now()
 	for i := 0; i < 10 || time.Since(startTime) < timeout; i++ {
 		region := c.GetRegion(key)
 		regionID := region.GetId()
 		req := NewRequest(regionID, region.RegionEpoch, reqs)
+		req.Header.Client = client
+		req.Header.Serial = uint64(time.Now().UnixNano())
 		resp, txn := c.CallCommandOnLeader(&req, timeout)
 		if resp == nil {
 			// it should be timeouted innerly
@@ -199,10 +201,10 @@ func (c *Cluster) Request(key []byte, reqs []*raft_cmdpb.Request, timeout time.D
 			SleepMS(100)
 			continue
 		}
-		log.Infof("Cluster request finished req0=%v key=%s, target-region=%s, cost=%v", reqs[0], string(key), region, time.Since(startTime))
+		log.Infof("Cluster request finished req=%v key=%s, target-region=%s, cost=%v", req, string(key), region, time.Since(startTime))
 		return resp, txn
 	}
-	log.Errorf("request timeout key=%s, %v", string(key), reqs[0])
+	log.Panicf("request timeout key=%s, %v", string(key), reqs)
 	panic("request timeout")
 }
 
@@ -225,7 +227,7 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 		request.Header.Peer = leader
 		resp, txn := c.CallCommand(request, 1*time.Second)
 		if resp == nil {
-			log.Debugf("can't call command %s on leader %d of region %d", request.String(), leader.GetId(), regionID)
+			log.Infof("can't call command %s on leader %d of region %d", request.String(), leader.GetId(), regionID)
 			newLeader := c.LeaderOfRegion(regionID)
 			if leader == newLeader {
 				region, _, err := c.schedulerClient.GetRegionByID(context.TODO(), regionID)
@@ -234,11 +236,11 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 				}
 				peers := region.GetPeers()
 				leader = peers[rand.Int()%len(peers)]
-				log.Debugf("leader info maybe wrong, use random leader %d of region %d", leader.GetId(), regionID)
+				log.Infof("leader info maybe wrong, use random leader %d of region %d", leader.GetId(), regionID)
 			} else {
-				log.Debugf("client change leader from %v to %v", leader, newLeader)
+				log.Infof("client change leader from %v to %v", leader, newLeader)
 				leader = newLeader
-				log.Debugf("use new leader %d of region %d", leader.GetId(), regionID)
+				log.Infof("use new leader %d of region %d", leader.GetId(), regionID)
 			}
 			continue
 		}
@@ -300,13 +302,13 @@ func (c *Cluster) GetStoreIdsOfRegion(regionID uint64) []uint64 {
 	return storeIds
 }
 
-func (c *Cluster) MustPut(key, value []byte) {
-	c.MustPutCF(engine_util.CfDefault, key, value)
+func (c *Cluster) MustPut(client uint64, key, value []byte) {
+	c.MustPutCF(client, engine_util.CfDefault, key, value)
 }
 
-func (c *Cluster) MustPutCF(cf string, key, value []byte) {
+func (c *Cluster) MustPutCF(client uint64, cf string, key, value []byte) {
 	req := NewPutCfCmd(cf, key, value)
-	resp, _ := c.Request(key, []*raft_cmdpb.Request{req}, 5*time.Second)
+	resp, _ := c.Request(client, key, []*raft_cmdpb.Request{req}, 5*time.Second)
 	if resp.Header.Error != nil {
 		panic(resp.Header.Error)
 	}
@@ -331,7 +333,7 @@ func (c *Cluster) Get(key []byte) []byte {
 
 func (c *Cluster) GetCF(cf string, key []byte) []byte {
 	req := NewGetCfCmd(cf, key)
-	resp, _ := c.Request(key, []*raft_cmdpb.Request{req}, 5*time.Second)
+	resp, _ := c.Request(0, key, []*raft_cmdpb.Request{req}, 5*time.Second)
 	if resp.Header.Error != nil {
 		panic(resp.Header.Error)
 	}
@@ -344,13 +346,13 @@ func (c *Cluster) GetCF(cf string, key []byte) []byte {
 	return resp.Responses[0].Get.Value
 }
 
-func (c *Cluster) MustDelete(key []byte) {
-	c.MustDeleteCF(engine_util.CfDefault, key)
+func (c *Cluster) MustDelete(client uint64, key []byte) {
+	c.MustDeleteCF(client, engine_util.CfDefault, key)
 }
 
-func (c *Cluster) MustDeleteCF(cf string, key []byte) {
+func (c *Cluster) MustDeleteCF(client uint64, cf string, key []byte) {
 	req := NewDeleteCfCmd(cf, key)
-	resp, _ := c.Request(key, []*raft_cmdpb.Request{req}, 5*time.Second)
+	resp, _ := c.Request(client, key, []*raft_cmdpb.Request{req}, 5*time.Second)
 	if resp.Header.Error != nil {
 		panic(resp.Header.Error)
 	}
@@ -369,7 +371,7 @@ func (c *Cluster) Scan(start, end []byte) [][]byte {
 	key := start
 	for (len(end) != 0 && bytes.Compare(key, end) < 0) || (len(key) == 0 && len(end) == 0) {
 		log.Infof("Cluster Scan [%s,%s)", string(start), string(end))
-		resp, txn := c.Request(key, []*raft_cmdpb.Request{req}, 5*time.Second)
+		resp, txn := c.Request(0, key, []*raft_cmdpb.Request{req}, 5*time.Second)
 		if resp.Header.Error != nil {
 			panic(resp.Header.Error)
 		}

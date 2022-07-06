@@ -72,7 +72,7 @@ func (t *MockTransport) Send(msg *raft_serverpb.RaftMessage) error {
 
 	for _, filter := range t.filters {
 		if !filter.Before(msg) {
-			return errors.New(fmt.Sprintf("message %+v is dropped", msg))
+			return fmt.Errorf("message %v is dropped", msg)
 		}
 	}
 

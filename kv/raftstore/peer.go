@@ -14,6 +14,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/pingcap/errors"
@@ -113,6 +114,7 @@ type peer struct {
 	// It's updated everytime the split checker scan the data
 	// (Used in 3B split)
 	ApproximateSize *uint64
+	ClientSerial    map[uint64]uint64
 }
 
 func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, region *metapb.Region, regionSched chan<- worker.Task,
@@ -150,6 +152,7 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		PeersStartPendingTime: make(map[uint64]time.Time),
 		Tag:                   tag,
 		ticker:                newTicker(region.GetId(), cfg),
+		ClientSerial:          make(map[uint64]uint64),
 	}
 
 	// If this region has only one peer and I am the one, campaign directly.
@@ -291,7 +294,7 @@ func (p *peer) Send(trans Transport, msgs []eraftpb.Message) {
 	for _, msg := range msgs {
 		err := p.sendRaftMessage(msg, trans)
 		if err != nil {
-			log.Debugf("%v send message err: %v", p.Tag, err)
+			log.Infof("%v send message err: %v", p.Tag, err)
 		}
 	}
 }
@@ -413,4 +416,30 @@ func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	}
 	sendMsg.Message = &msg
 	return trans.Send(sendMsg)
+}
+
+func (p *peer) IdempotentWritten(msg *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
+	if msg.Header == nil || msg.Header.Serial == 0 || len(msg.Requests) != 1 {
+		return nil
+	}
+	req := msg.Requests[0]
+	if req.CmdType != raft_cmdpb.CmdType_Put && req.CmdType != raft_cmdpb.CmdType_Delete {
+		return nil
+	}
+	if msg.Header.Serial > p.ClientSerial[msg.Header.Client] {
+		return nil
+	}
+	resp := newCmdResp()
+	resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+		CmdType: req.CmdType,
+	})
+	switch req.CmdType {
+	case raft_cmdpb.CmdType_Put:
+		resp.Responses[0].Put = new(raft_cmdpb.PutResponse)
+	case raft_cmdpb.CmdType_Delete:
+		resp.Responses[0].Delete = new(raft_cmdpb.DeleteResponse)
+	default:
+		panic("never execute")
+	}
+	return resp
 }

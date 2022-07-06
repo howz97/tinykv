@@ -520,7 +520,7 @@ func (r *Raft) handleTransferLeader(m pb.Message) error {
 		return ErrStepPeerNotFound
 	}
 	if m.From == r.id {
-		// duplicate re-try
+		log.Errorf("already be leader, do not need to transfer leader to self")
 		return nil
 	}
 	r.leadTransferee = m.From
@@ -599,7 +599,7 @@ func (r *Raft) onReceiveOldTerm(m pb.Message) {
 
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
-	log.Debugf("%s received AppendEntry request PreMatch=(t%d,i%d), len(ents)=%d, followerLOg=%s",
+	log.Debugf("%s received AppendEntry request PreMatch=(t%d,i%d), len(ents)=%d, followerLog=%s",
 		r, m.LogTerm, m.Index, len(m.Entries), r.RaftLog)
 	resp := &pb.Message{
 		MsgType: pb.MessageType_MsgAppendResponse,
@@ -727,16 +727,12 @@ func (r *Raft) leaderMaybeCommit() bool {
 		return false
 	}
 	var commit uint64
-	if len(r.Prs) == 1 {
-		commit = r.RaftLog.LastIndex()
-	} else {
-		var matchs []int
-		for _, prs := range r.Prs {
-			matchs = append(matchs, int(prs.Match))
-		}
-		sort.Sort(sort.Reverse(sort.IntSlice(matchs)))
-		commit = uint64(matchs[len(r.Prs)/2])
+	var matchs []int
+	for _, prs := range r.Prs {
+		matchs = append(matchs, int(prs.Match))
 	}
+	sort.Sort(sort.Reverse(sort.IntSlice(matchs)))
+	commit = uint64(matchs[len(r.Prs)/2])
 	if commit <= r.RaftLog.committed {
 		return false
 	}
@@ -773,6 +769,7 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	}
 	resp.Term, resp.Index = r.RaftLog.LastEntry()
 	r.sendMsg(m.From, resp)
+	log.Debugf("%s received heartbeat from %d, campaignAfter=%v", r, m.From, r.campaignAfter)
 }
 
 func (r *Raft) handleHeartBeatResp(m pb.Message) {
@@ -811,7 +808,7 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 		r.Vote = m.From
 	}
 	r.sendMsg(m.From, resp)
-	log.Infof("%s handleRequestVote %v granted vote to %v .", r, m.MsgType, m.From)
+	log.Infof("%s handleRequestVote, r.Vote=%v, r.withoutBeat=%d, r.Log=%v: granted vote to %v", r, r.Vote, r.withoutHeartbeat, r.RaftLog, m)
 }
 
 // m.MsgType is MessageType_MsgRequestVoteResponse or MessageType_MsgPreVoteResp
@@ -933,22 +930,30 @@ func (r *Raft) removeNode(id uint64) {
 		return
 	}
 	if r.State == StateLeader {
-		if id == r.id {
-			transferee := None
-			// choose the most match follower
-			for id, prs := range r.Prs {
-				if transferee == None {
-					transferee = id
-					continue
-				}
-				if prs.Match > r.Prs[transferee].Match {
-					transferee = id
-				}
-			}
-			r.Step(pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee})
-		} else if r.leaderMaybeCommit() {
+		if r.leaderMaybeCommit() {
 			// broadcast commit index
 			r.bcastAppend()
 		}
 	}
+}
+
+func (r *Raft) ChooseTransferee() uint64 {
+	if r.State != StateLeader {
+		panic("only leader can call this")
+	}
+	transferee := None
+	// choose the most match follower
+	for id, prs := range r.Prs {
+		if id == r.id {
+			continue
+		}
+		if transferee == None {
+			transferee = id
+			continue
+		}
+		if prs.Match > r.Prs[transferee].Match {
+			transferee = id
+		}
+	}
+	return transferee
 }

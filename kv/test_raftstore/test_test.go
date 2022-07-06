@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	_ "net/http/pprof"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -166,6 +167,8 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 	}
 	title = title + " (" + part + ")" // 3A or 3B
 
+	log.Infof("%s start... CPU=%v", title, runtime.NumCPU())
+
 	nservers := 5
 	cfg := config.NewTestConfig()
 	if maxraftlog != -1 {
@@ -204,11 +207,11 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			}()
 			last := ""
 			for atomic.LoadInt32(&done_clients) == 0 {
-				if (rand.Int() % 1000) < 600 {
+				if (rand.Int() % 1000) < 500 {
 					key := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", j)
 					value := "x " + strconv.Itoa(cli) + " " + strconv.Itoa(j) + " y"
 					log.Infof("%d: client new put %v,%v\n", cli, key, value)
-					cluster.MustPut([]byte(key), []byte(value))
+					cluster.MustPut(uint64(cli+10000), []byte(key), []byte(value))
 					last = NextValue(last, value)
 					j++
 				} else {
@@ -284,7 +287,7 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 
 			for k := 0; k < j; k++ {
 				key := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", k)
-				cluster.MustDelete([]byte(key))
+				cluster.MustDelete(uint64(cli+10000), []byte(key))
 			}
 		}
 
@@ -377,7 +380,7 @@ func TestOnePartition2B(t *testing.T) {
 		s2: s2,
 	})
 	log.Infof("TestOnePartition2B before: Put k1:v1")
-	cluster.MustPut([]byte("k1"), []byte("v1"))
+	cluster.MustPut(1, []byte("k1"), []byte("v1"))
 	log.Infof("TestOnePartition2B after: Put k1:v1")
 	cluster.MustGet([]byte("k1"), []byte("v1"))
 	log.Infof("TestOnePartition2B after: Get k1:v1")
@@ -397,7 +400,7 @@ func TestOnePartition2B(t *testing.T) {
 	log.Infof("TestOnePartition2B old leader in minority, new leader should be elected s1=%v,s2=%v", s1, s2)
 	cluster.MustGet([]byte("k1"), []byte("v1"))
 	log.Infof("TestOnePartition2B after: Get k1:v1")
-	cluster.MustPut([]byte("k1"), []byte("changed"))
+	cluster.MustPut(1, []byte("k1"), []byte("changed"))
 	log.Infof("TestOnePartition2B after: Put k1:changed")
 	MustGetEqual(cluster.engines[s1[0]], []byte("k1"), []byte("v1"))
 	log.Infof("TestOnePartition2B after: Get s1[0] k1:v1")
@@ -407,7 +410,7 @@ func TestOnePartition2B(t *testing.T) {
 
 	// when partition heals, old leader should sync data
 	log.Infof("TestOnePartition2B partition heals")
-	cluster.MustPut([]byte("k2"), []byte("v2"))
+	cluster.MustPut(1, []byte("k2"), []byte("v2"))
 	log.Infof("TestOnePartition2B after: Put k2:v2")
 	MustGetEqual(cluster.engines[s1[0]], []byte("k2"), []byte("v2"))
 	MustGetEqual(cluster.engines[s1[0]], []byte("k1"), []byte("changed"))
@@ -456,8 +459,8 @@ func TestOneSnapshot2C(t *testing.T) {
 	defer cluster.Shutdown()
 
 	cf := engine_util.CfLock
-	cluster.MustPutCF(cf, []byte("k1"), []byte("v1"))
-	cluster.MustPutCF(cf, []byte("k2"), []byte("v2"))
+	cluster.MustPutCF(1, cf, []byte("k1"), []byte("v1"))
+	cluster.MustPutCF(1, cf, []byte("k2"), []byte("v2"))
 
 	MustGetCfEqual(cluster.engines[1], cf, []byte("k1"), []byte("v1"))
 	MustGetCfEqual(cluster.engines[1], cf, []byte("k2"), []byte("v2"))
@@ -482,9 +485,9 @@ func TestOneSnapshot2C(t *testing.T) {
 
 	// write some data to trigger snapshot
 	for i := 100; i < 115; i++ {
-		cluster.MustPutCF(cf, []byte(fmt.Sprintf("k%d", i)), []byte(fmt.Sprintf("v%d", i)))
+		cluster.MustPutCF(1, cf, []byte(fmt.Sprintf("k%d", i)), []byte(fmt.Sprintf("v%d", i)))
 	}
-	cluster.MustDeleteCF(cf, []byte("k2"))
+	cluster.MustDeleteCF(1, cf, []byte("k2"))
 	time.Sleep(500 * time.Millisecond)
 	MustGetCfNone(cluster.engines[1], cf, []byte("k100"))
 	log.Infof("TestOneSnapshot2C before ClearFilters")
@@ -566,13 +569,13 @@ func TestBasicConfChange3B(t *testing.T) {
 	cluster.MustRemovePeer(1, NewPeer(5, 5))
 
 	// now region 1 only has peer: (1, 1)
-	cluster.MustPut([]byte("k1"), []byte("v1"))
+	cluster.MustPut(1, []byte("k1"), []byte("v1"))
 	MustGetNone(cluster.engines[2], []byte("k1"))
 
 	// add peer (2, 2) to region 1
 	cluster.MustAddPeer(1, NewPeer(2, 2))
 	log.Infof("TestBasicConfChange3B add peer2 back to region1 ")
-	cluster.MustPut([]byte("k2"), []byte("v2"))
+	cluster.MustPut(1, []byte("k2"), []byte("v2"))
 	cluster.MustGet([]byte("k2"), []byte("v2"))
 	MustGetEqual(cluster.engines[2], []byte("k1"), []byte("v1"))
 	MustGetEqual(cluster.engines[2], []byte("k2"), []byte("v2"))
@@ -587,7 +590,7 @@ func TestBasicConfChange3B(t *testing.T) {
 	cluster.MustAddPeer(1, NewPeer(3, 3))
 	cluster.MustRemovePeer(1, NewPeer(2, 2))
 
-	cluster.MustPut([]byte("k3"), []byte("v3"))
+	cluster.MustPut(1, []byte("k3"), []byte("v3"))
 	cluster.MustGet([]byte("k3"), []byte("v3"))
 	MustGetEqual(cluster.engines[3], []byte("k1"), []byte("v1"))
 	MustGetEqual(cluster.engines[3], []byte("k2"), []byte("v2"))
@@ -610,7 +613,7 @@ func TestBasicConfChange3B(t *testing.T) {
 	// remove peer (3, 3) from region 1
 	cluster.MustRemovePeer(1, NewPeer(3, 3))
 
-	cluster.MustPut([]byte("k4"), []byte("v4"))
+	cluster.MustPut(1, []byte("k4"), []byte("v4"))
 	log.Infof("TestBasicConfChange3B @final check engine %v", cluster.engines[2])
 	for store, eng := range cluster.engines {
 		log.Infof("listing store=%d,engine=%v", store, eng)
@@ -661,8 +664,8 @@ func TestOneSplit3B(t *testing.T) {
 	cluster.Start()
 	defer cluster.Shutdown()
 
-	cluster.MustPut([]byte("k1"), []byte("v1"))
-	cluster.MustPut([]byte("k2"), []byte("v2"))
+	cluster.MustPut(1, []byte("k1"), []byte("v1"))
+	cluster.MustPut(1, []byte("k2"), []byte("v2"))
 
 	region := cluster.GetRegion([]byte("k1"))
 	region1 := cluster.GetRegion([]byte("k2"))
@@ -677,7 +680,7 @@ func TestOneSplit3B(t *testing.T) {
 
 	// write some data to trigger split
 	for i := 100; i < 200; i++ {
-		cluster.MustPut([]byte(fmt.Sprintf("k%d", i)), []byte(fmt.Sprintf("v%d", i)))
+		cluster.MustPut(1, []byte(fmt.Sprintf("k%d", i)), []byte(fmt.Sprintf("v%d", i)))
 	}
 
 	time.Sleep(200 * time.Millisecond)
@@ -704,7 +707,7 @@ func TestOneSplit3B(t *testing.T) {
 func TestSplitRecover3B(t *testing.T) {
 	log.GetLogLevel()
 	// Test: restarts, snapshots, conf change, one client (3B) ...
-	GenericTest(t, "3B", 1, false, true, false, -1, false, true)
+	GenericTest(t, "3B", 3, false, true, false, -1, false, true)
 }
 
 func TestSplitRecoverManyClients3B(t *testing.T) {

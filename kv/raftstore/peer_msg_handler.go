@@ -16,6 +16,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
+	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/btree"
 	"github.com/pingcap/errors"
 )
@@ -77,6 +78,9 @@ func (d *peerMsgHandler) HandleRaftReady() {
 			if cb != nil && len(resp.Responses) > 0 && resp.Responses[0].CmdType == raft_cmdpb.CmdType_Snap {
 				log.Infof("peer %s applied and response snap entry=(t%d,i%d)", d.Tag, ent.Term, ent.Index)
 				cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
+			}
+			if cb != nil && len(resp.Responses) > 0 && resp.Responses[0].CmdType == raft_cmdpb.CmdType_Put {
+				log.Infof("peer %s applied and response put entry=(t%d,i%d)", d.Tag, ent.Term, ent.Index)
 			}
 		case eraftpb.EntryType_EntryConfChange:
 			resp = d.applyConfChange(ent)
@@ -166,6 +170,9 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.R
 			if err != nil {
 				return nil, err
 			}
+			if reqs.Header.Serial > d.peer.ClientSerial[reqs.Header.Client] {
+				d.peer.ClientSerial[reqs.Header.Client] = reqs.Header.Serial
+			}
 			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
 				CmdType: raft_cmdpb.CmdType_Put,
 				Put:     r,
@@ -174,6 +181,9 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.R
 			r, err := d.processDel(req.Delete)
 			if err != nil {
 				return nil, err
+			}
+			if reqs.Header.Serial > d.peer.ClientSerial[reqs.Header.Client] {
+				d.peer.ClientSerial[reqs.Header.Client] = reqs.Header.Serial
 			}
 			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
 				CmdType: raft_cmdpb.CmdType_Delete,
@@ -238,6 +248,7 @@ func (d *peerMsgHandler) processPut(req *raft_cmdpb.PutRequest) (*raft_cmdpb.Put
 	}
 	resp := new(raft_cmdpb.PutResponse)
 	d.SizeDiffHint += uint64(len(req.Key) + len(req.Value))
+	log.Infof("%s applied put command %v", d.Tag, req)
 	return resp, err
 }
 
@@ -432,6 +443,13 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		}
 	}
 
+	if resp := d.IdempotentWritten(msg); resp != nil {
+		cb.Done(resp)
+		log.Debugf("%s IdempotentWritten skip %v, ClientSerial=%v, kvs=%v",
+			d.Tag, msg, d.ClientSerial, engine_util.GetRange(d.ctx.engine.Kv, d.Region().StartKey, d.Region().EndKey))
+		return
+	}
+
 	data, err := msg.Marshal()
 	if err != nil {
 		cb.Done(ErrResp(err))
@@ -451,7 +469,10 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		cb:    cb,
 	}
 	d.proposals = append(d.proposals, pp)
-	log.Debugf("proposeRaftCommand=%s, proposals=%s", pp, d.proposalStr())
+	if len(msg.Requests) > 0 && msg.Requests[0].Put != nil {
+		putReq := msg.Requests[0].Put
+		log.Infof("%s propose raft entry (t%d,i%d), %v", d.Tag, lt, li, putReq)
+	}
 }
 
 func (d *peerMsgHandler) proposalTransfer(req *raft_cmdpb.TransferLeaderRequest, cb *message.Callback) {
@@ -480,6 +501,15 @@ func (d *peerMsgHandler) proposalChangerPeer(req *raft_cmdpb.ChangePeerRequest, 
 		err := util.CloneMsg(d.Region(), resp.AdminResponse.ChangePeer.Region)
 		util.CheckErr(err)
 		cb.Done(resp)
+		return
+	}
+	if req.ChangeType == eraftpb.ConfChangeType_RemoveNode && req.Peer.Id == d.PeerId() {
+		ee := d.RaftGroup.Raft.ChooseTransferee()
+		if ee == raft.None {
+			panic("can not transfer leader")
+		}
+		err := d.RaftGroup.TransferLeader(ee)
+		log.Warnf("leader %s proposal remove self, transfer leader to peer%v first: %v", d.Tag, ee, err)
 		return
 	}
 
