@@ -875,7 +875,7 @@ func (r *Raft) handleSnapshot(m pb.Message) {
 	if r.RaftLog.pendingSnapshot != nil {
 		return
 	}
-	log.Infof("%s handle snapshot(%d) from %d", r, cmptIdx, m.From)
+	log.Infof("%s handle snapshot(%d) from %d .", r, cmptIdx, m.From)
 	r.RaftLog.pendingSnapshot = m.Snapshot
 	if len(r.RaftLog.entries) > 0 {
 		offset := cmptIdx - r.RaftLog.entries[0].Index + 1
