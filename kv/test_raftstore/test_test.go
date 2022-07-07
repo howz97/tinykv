@@ -707,7 +707,7 @@ func TestOneSplit3B(t *testing.T) {
 func TestSplitRecover3B(t *testing.T) {
 	log.GetLogLevel()
 	// Test: restarts, snapshots, conf change, one client (3B) ...
-	GenericTest(t, "3B", 5, false, true, false, -1, false, true)
+	GenericTest(t, "3B", 1, false, true, false, -1, false, true)
 }
 
 func TestSplitRecoverManyClients3B(t *testing.T) {
@@ -732,5 +732,5 @@ func TestSplitConfChangeSnapshotUnreliableRecover3B(t *testing.T) {
 
 func TestSplitConfChangeSnapshotUnreliableRecoverConcurrentPartition3B(t *testing.T) {
 	// Test: unreliable net, restarts, partitions, snapshots, conf change, many clients (3B) ...
-	GenericTest(t, "3B", 10, true, true, true, 100, true, true)
+	GenericTest(t, "3B", 5, true, true, true, 100, true, true)
 }

@@ -455,6 +455,7 @@ func (r *Raft) stepFollower(m pb.Message) error {
 		r.sendMsg(r.Lead, &m)
 	case pb.MessageType_MsgTimeoutNow:
 		if _, ok := r.Prs[r.id]; ok {
+			log.Infof("%s received MsgTimeoutNow from %v, log=%v", r, m.From, r.RaftLog)
 			r.Step(pb.Message{MsgType: pb.MessageType_MsgHup, Force: true})
 		}
 	default:
@@ -808,7 +809,7 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 		r.Vote = m.From
 	}
 	r.sendMsg(m.From, resp)
-	log.Infof("%s handleRequestVote, r.Vote=%v, r.withoutBeat=%d, r.Log=%v: granted vote to %v", r, r.Vote, r.withoutHeartbeat, r.RaftLog, m)
+	log.Infof("%s handleRequestVote, r.Vote=%v, r.withoutBeat=%d, r.Log=%v: granted vote to %s", r, r.Vote, r.withoutHeartbeat, r.RaftLog, m)
 }
 
 // m.MsgType is MessageType_MsgRequestVoteResponse or MessageType_MsgPreVoteResp

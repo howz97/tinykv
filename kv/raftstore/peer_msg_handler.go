@@ -77,11 +77,11 @@ func (d *peerMsgHandler) HandleRaftReady() {
 			resp = d.applyNormal(ent)
 			if cb != nil && len(resp.Responses) > 0 && resp.Responses[0].CmdType == raft_cmdpb.CmdType_Snap {
 				log.Infof("peer %s applied and response snap entry=(t%d,i%d)", d.Tag, ent.Term, ent.Index)
-				cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
+				cb.Txn = d.ctx.engine.Kv.NewTransaction(false)
 			}
-			if cb != nil && len(resp.Responses) > 0 && resp.Responses[0].CmdType == raft_cmdpb.CmdType_Put {
-				log.Infof("peer %s applied and response put entry=(t%d,i%d)", d.Tag, ent.Term, ent.Index)
-			}
+			// if cb != nil && len(resp.Responses) > 0 && resp.Responses[0].CmdType == raft_cmdpb.CmdType_Put {
+			// 	log.Infof("peer %s applied and response put entry=(t%d,i%d)", d.Tag, ent.Term, ent.Index)
+			// }
 		case eraftpb.EntryType_EntryConfChange:
 			resp = d.applyConfChange(ent)
 		}
@@ -190,14 +190,7 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.R
 				Delete:  r,
 			})
 		case raft_cmdpb.CmdType_Snap:
-			if reqs.Header.RegionEpoch.Version != d.Region().RegionEpoch.Version {
-				err := &util.ErrEpochNotMatch{
-					Message: "region split occured",
-					Regions: []*metapb.Region{util.CopyRegion(d.Region())},
-				}
-				return nil, err
-			}
-			r, err := d.processSnap()
+			r, err := d.processSnap(reqs)
 			if err != nil {
 				return nil, err
 			}
@@ -212,13 +205,16 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.R
 	return resp, nil
 }
 
-func (d *peerMsgHandler) processSnap() (*raft_cmdpb.SnapResponse, error) {
-	resp := new(raft_cmdpb.SnapResponse)
-	resp.Region = new(metapb.Region)
-	err := util.CloneMsg(d.peerStorage.region, resp.Region)
-	if err != nil {
+func (d *peerMsgHandler) processSnap(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.SnapResponse, error) {
+	if reqs.Header.RegionEpoch.Version != d.Region().RegionEpoch.Version {
+		err := &util.ErrEpochNotMatch{
+			Message: "region split occured",
+			Regions: []*metapb.Region{util.CopyRegion(d.Region())},
+		}
 		return nil, err
 	}
+	resp := new(raft_cmdpb.SnapResponse)
+	resp.Region = util.CopyRegion(d.Region())
 	return resp, nil
 }
 
@@ -276,29 +272,32 @@ func (d *peerMsgHandler) processAdmin(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cm
 		resp.CompactLog = new(raft_cmdpb.CompactLogResponse)
 	case raft_cmdpb.AdminCmdType_Split:
 		if util.IsEpochStale(reqs.Header.RegionEpoch, d.Region().RegionEpoch) {
+			log.Warnf("%s failed to split because epoch is stale, %s but current is %s", d.Tag, reqs.Header.RegionEpoch, d.Region().RegionEpoch)
+			// re-scan region size
+			d.ApproximateSize = nil
 			return nil, &util.ErrEpochNotMatch{Message: "AdminCmdType_Split region epoch not match"}
 		}
 		resp.Split = d.processAdminSplit(reqs.AdminRequest.Split)
 	}
-	return &raft_cmdpb.RaftCmdResponse{AdminResponse: resp}, nil
+	return &raft_cmdpb.RaftCmdResponse{Header: new(raft_cmdpb.RaftResponseHeader), AdminResponse: resp}, nil
 }
 
 func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest) *raft_cmdpb.SplitResponse {
 	log.Infof("%s processAdminSplit req %v", d.Tag, req)
 	if len(req.NewPeerIds) == 0 {
-		log.Errorf("split request is invalid: %s", req)
+		log.Fatalf("processAdminSplit split request is invalid: %s", req)
 		return nil
 	}
 	region0 := d.Region()
 	if util.CheckKeyInRegion(req.SplitKey, region0) != nil {
-		log.Warnf("split already executed")
+		log.Warnf("processAdminSplit key not in region %s req=%s, maybe already splited", d.Region(), req)
 		return nil
 	}
 	storeMeta := d.ctx.storeMeta
 	storeMeta.Lock()
 	defer storeMeta.Unlock()
 	if _, ok := storeMeta.regions[req.NewRegionId]; ok {
-		log.Errorf("%s processAdminSplit but new region already exist, maybe replicatePeer created it", d.Tag)
+		log.Fatalf("%s processAdminSplit but new region already exist, maybe replicatePeer created it", d.Tag)
 		return nil
 	}
 	// change meta data
@@ -439,15 +438,33 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		case raft_cmdpb.AdminCmdType_TransferLeader:
 			d.proposalTransfer(admReq.TransferLeader, cb)
 			return
-		default:
 		}
-	}
-
-	if resp := d.IdempotentWritten(msg); resp != nil {
-		cb.Done(resp)
-		log.Debugf("%s IdempotentWritten skip %v, ClientSerial=%v, kvs=%v",
-			d.Tag, msg, d.ClientSerial, engine_util.GetRange(d.ctx.engine.Kv, d.Region().StartKey, d.Region().EndKey))
-		return
+	} else {
+		// response directly if Put/Delete has already executed
+		if resp := d.IdempotentWritten(msg); resp != nil {
+			cb.Done(resp)
+			log.Debugf("%s IdempotentWritten skip %v, ClientSerial=%v, kvs=%v",
+				d.Tag, msg, d.ClientSerial, engine_util.GetRange(d.ctx.engine.Kv, d.Region().StartKey, d.Region().EndKey))
+			return
+		}
+		// response Snap without distribute log through raft
+		req := msg.Requests[0]
+		if req.CmdType == raft_cmdpb.CmdType_Snap {
+			var resp *raft_cmdpb.RaftCmdResponse
+			r, err := d.processSnap(msg)
+			if err != nil {
+				resp = ErrResp(err)
+			} else {
+				resp = newCmdResp()
+				resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+					CmdType: raft_cmdpb.CmdType_Snap,
+					Snap:    r,
+				})
+				cb.Txn = d.ctx.engine.Kv.NewTransaction(false)
+			}
+			cb.Done(resp)
+			return
+		}
 	}
 
 	data, err := msg.Marshal()
@@ -459,20 +476,17 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 	if err != nil {
 		cb.Done(ErrResp(err))
 	}
-	if cb == nil {
-		return
-	}
+	// record CallBack
 	lt, li := d.RaftGroup.Raft.RaftLog.LastEntry()
-	pp := &proposal{
-		index: li,
-		term:  lt,
-		cb:    cb,
+	if cb != nil {
+		pp := &proposal{
+			index: li,
+			term:  lt,
+			cb:    cb,
+		}
+		d.proposals = append(d.proposals, pp)
 	}
-	d.proposals = append(d.proposals, pp)
-	if len(msg.Requests) > 0 && msg.Requests[0].Put != nil {
-		putReq := msg.Requests[0].Put
-		log.Infof("%s propose raft entry (t%d,i%d), %v", d.Tag, lt, li, putReq)
-	}
+	log.Infof("%s proposed raft entry (t%d,i%d), %s", d.Tag, lt, li, msg)
 }
 
 func (d *peerMsgHandler) proposalTransfer(req *raft_cmdpb.TransferLeaderRequest, cb *message.Callback) {
@@ -888,20 +902,28 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 		return
 	}
 	if !d.IsLeader() {
+		// reset ApproximateSize to check split after become leader again
+		d.ApproximateSize = nil
+		d.SizeDiffHint = 0
 		return
 	}
 	approx := uint64(d.ctx.cfg.RegionMaxSize)
 	if d.ApproximateSize != nil {
 		approx = *d.ApproximateSize
 	}
-	if approx+d.SizeDiffHint <= d.ctx.cfg.RegionMaxSize {
+	if approx+d.SizeDiffHint < d.ctx.cfg.RegionMaxSize {
+		log.Infof("onSplitRegionCheckTick %s do not send msg: %v, (Approx=%v+hint=%v) splitMax=%d/%d",
+			d.Tag, d.ApproximateSize, approx, d.SizeDiffHint, d.ctx.cfg.RegionMaxSize, d.ctx.cfg.RegionSplitSize)
 		return
 	}
-	log.Infof("%s onSplitRegionCheckTick send check message: (Approx=%v + hint=%v) splitMax=%d/%d",
+	log.Infof("onSplitRegionCheckTick %s send check split message: (Approx=%v + hint=%v) splitMax=%d/%d",
 		d.Tag, approx, d.SizeDiffHint, d.ctx.cfg.RegionMaxSize, d.ctx.cfg.RegionSplitSize)
 	d.ctx.splitCheckTaskSender <- &runner.SplitCheckTask{
 		Region: d.Region(),
 	}
+	// SplitCheckTask maybe time consuming, set smaller ApproximateSize to avoid duplicated scan
+	// ApproximateSize will be replaced by scan result as soon as scan finished
+	d.ApproximateSize = &d.ctx.cfg.RegionSplitSize
 	d.SizeDiffHint = 0
 }
 
@@ -954,7 +976,6 @@ func (d *peerMsgHandler) validateSplitRegion(epoch *metapb.RegionEpoch, splitKey
 
 func (d *peerMsgHandler) onApproximateRegionSize(size uint64) {
 	d.ApproximateSize = &size
-	d.SizeDiffHint = 0
 	log.Infof("%s onApproximateRegionSize(%d)", d.Tag, size)
 }
 

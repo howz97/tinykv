@@ -87,7 +87,8 @@ func (r *SchedulerTaskHandler) onRegionHeartbeatResponse(resp *schedulerpb.Regio
 func (r *SchedulerTaskHandler) onAskSplit(t *SchedulerAskSplitTask) {
 	resp, err := r.SchedulerClient.AskSplit(context.TODO(), t.Region)
 	if err != nil {
-		log.Error(err)
+		log.Errorf("failed to ask split %v", err)
+		// todo: t.Callback.Done()
 		return
 	}
 
@@ -99,6 +100,7 @@ func (r *SchedulerTaskHandler) onAskSplit(t *SchedulerAskSplitTask) {
 			NewPeerIds:  resp.NewPeerIds,
 		},
 	}
+	log.Infof("get ready to proposal split key=%s", string(t.SplitKey))
 	r.sendAdminRequest(t.Region.GetId(), t.Region.GetRegionEpoch(), t.Peer, aq, t.Callback)
 }
 

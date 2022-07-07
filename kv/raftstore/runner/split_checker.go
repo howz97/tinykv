@@ -2,6 +2,7 @@ package runner
 
 import (
 	"encoding/hex"
+	"time"
 
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
@@ -35,39 +36,58 @@ func NewSplitCheckHandler(engine *badger.DB, router message.RaftRouter, conf *co
 
 /// run checks a region with split checkers to produce split keys and generates split admin command.
 func (r *splitCheckHandler) Handle(t worker.Task) {
-	spCheckTask, ok := t.(*SplitCheckTask)
-	if !ok {
-		log.Errorf("unsupported worker.Task: %+v", t)
-		return
-	}
+	spCheckTask := t.(*SplitCheckTask)
 	region := spCheckTask.Region
 	regionId := region.Id
-	log.Infof("executing split check worker.Task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
+	log.Infof("splitCheckHandler executing split check worker.Task: [regionId: %d, startKey: %s, endKey: %s]", regionId,
 		hex.EncodeToString(region.StartKey), hex.EncodeToString(region.EndKey))
 	key := r.splitCheck(regionId, region.StartKey, region.EndKey)
-	if key != nil {
-		_, userKey, err := codec.DecodeBytes(key)
-		if err == nil {
-			// It's not a raw key.
-			// To make sure the keys of same user key locate in one Region, decode and then encode to truncate the timestamp
-			key = codec.EncodeBytes(userKey)
-		}
-		log.Infof("split key found %s: region=%d,[%s,%s)", string(key), regionId, string(region.StartKey), string(region.EndKey))
-		msg := message.Msg{
-			Type:     message.MsgTypeSplitRegion,
-			RegionID: regionId,
-			Data: &message.MsgSplitRegion{
-				RegionEpoch: region.GetRegionEpoch(),
-				SplitKey:    key,
-			},
-		}
-		err = r.router.Send(regionId, msg)
-		if err != nil {
-			log.Warnf("failed to send check result: [regionId: %d, err: %v]", regionId, err)
-		}
-	} else {
-		log.Infof("no need to send, split key not found: [regionId: %v], kvs=%v", regionId, engine_util.GetRange(r.engine, region.StartKey, region.EndKey))
+	apprxMsg := message.Msg{
+		Type: message.MsgTypeRegionApproximateSize,
+		Data: r.checker.currentSize,
 	}
+	if key == nil {
+		log.Infof("splitCheckHandler no need to send, split key not found: [regionId: %v]", regionId)
+	} else if r.splitByKey(region, key) {
+		apprxMsg.Data = r.checker.splitSize
+	} else {
+		log.Infof("splitCheckHandler failed to split key=%s", string(key))
+	}
+	r.router.Send(regionId, apprxMsg)
+}
+
+func (r *splitCheckHandler) splitByKey(region *metapb.Region, key []byte) bool {
+	_, userKey, err := codec.DecodeBytes(key)
+	if err == nil {
+		// It's not a raw key.
+		// To make sure the keys of same user key locate in one Region, decode and then encode to truncate the timestamp
+		key = codec.EncodeBytes(userKey)
+	}
+	log.Infof("split key found %s: region=%d,[%s,%s)", string(key), region.Id, string(region.StartKey), string(region.EndKey))
+	cb := message.NewCallback()
+	msg := message.Msg{
+		Type:     message.MsgTypeSplitRegion,
+		RegionID: region.Id,
+		Data: &message.MsgSplitRegion{
+			RegionEpoch: region.GetRegionEpoch(),
+			SplitKey:    key,
+			Callback:    cb,
+		},
+	}
+	err = r.router.Send(region.Id, msg)
+	if err != nil {
+		log.Errorf("failed to send check result: [regionId: %d, err: %v]", region.Id, err)
+		return false
+	}
+	resp := cb.WaitRespWithTimeout(3 * time.Second)
+	if resp == nil {
+		return false
+	}
+	if resp.Header.Error != nil {
+		return false
+	}
+	log.Infof("splitCheckHandler finished split by key %s", string(key))
+	return true
 }
 
 /// SplitCheck gets the split keys by scanning the range.
@@ -90,17 +110,7 @@ func (r *splitCheckHandler) splitCheck(regionID uint64, startKey, endKey []byte)
 		}
 	}
 	log.Infof("region %d splitCheck currentSize = %d, keyRange=[%s,%s)", regionID, r.checker.currentSize, string(startKey), string(endKey))
-	// update region size
-	apprxMsg := message.Msg{
-		Type: message.MsgTypeRegionApproximateSize,
-		Data: r.checker.currentSize,
-	}
-	splitKey := r.checker.getSplitKey()
-	if splitKey != nil {
-		apprxMsg.Data = r.checker.splitSize
-	}
-	r.router.Send(regionID, apprxMsg)
-	return splitKey
+	return r.checker.getSplitKey()
 }
 
 type sizeSplitChecker struct {
