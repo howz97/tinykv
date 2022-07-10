@@ -14,7 +14,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"github.com/pingcap-incubator/tinykv/raft"
 	"github.com/pingcap/errors"
@@ -57,15 +56,48 @@ func replicatePeer(storeID uint64, cfg *config.Config, sched chan<- worker.Task,
 	return NewPeer(storeID, cfg, engines, region, sched, metaPeer)
 }
 
-type proposal struct {
-	// index + term for unique identification
-	index uint64
+// index + term for unique identification
+type entryID struct {
 	term  uint64
+	index uint64
+}
+
+type proposal struct {
+	term  uint64
+	index uint64
 	cb    *message.Callback
 }
 
 func (p *proposal) String() string {
 	return fmt.Sprintf("(t%d,i%d)", p.term, p.index)
+}
+
+func (p *peer) recordProposal(t, i uint64, cb *message.Callback) {
+	pp := &proposal{
+		term:  t,
+		index: i,
+		cb:    cb,
+	}
+	p.proposals[entryID{term: t, index: i}] = pp
+}
+
+func (p *peer) takeProposal(t, i uint64) *message.Callback {
+	id := entryID{term: t, index: i}
+	pp := p.proposals[id]
+	if pp == nil {
+		return nil
+	}
+	delete(p.proposals, id)
+	return pp.cb
+}
+
+func (p *peer) proposalStr() string {
+	str := "["
+	for _, p := range p.proposals {
+		str += p.String()
+	}
+	str += "]"
+	return str
 }
 
 type peer struct {
@@ -88,7 +120,7 @@ type peer struct {
 
 	// Record the callback of the proposals
 	// (Used in 2B)
-	proposals []*proposal
+	proposals map[entryID]*proposal
 
 	// Index of last scheduled compacted raft log.
 	// (Used in 2C)
@@ -151,6 +183,7 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 		peerCache:             make(map[uint64]*metapb.Peer),
 		PeersStartPendingTime: make(map[uint64]time.Time),
 		Tag:                   tag,
+		proposals:             make(map[entryID]*proposal),
 		ticker:                newTicker(region.GetId(), cfg),
 		ClientSerial:          make(map[uint64]uint64),
 	}
@@ -237,25 +270,6 @@ func (p *peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 
 	log.Infof("%v destroy itself, takes %v", p.Tag, time.Now().Sub(start))
 	return nil
-}
-
-func (p *peer) takeProposal(t, i uint64) *message.Callback {
-	for j, pp := range p.proposals {
-		if pp.term == t && pp.index == i {
-			p.proposals = append(p.proposals[:j], p.proposals[j+1:]...)
-			return pp.cb
-		}
-	}
-	return nil
-}
-
-func (p *peer) proposalStr() string {
-	str := "["
-	for _, p := range p.proposals {
-		str += p.String()
-	}
-	str += "]"
-	return str
 }
 
 func (p *peer) isInitialized() bool {
@@ -416,30 +430,4 @@ func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	}
 	sendMsg.Message = &msg
 	return trans.Send(sendMsg)
-}
-
-func (p *peer) IdempotentWritten(msg *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
-	if msg.Header == nil || msg.Header.Serial == 0 || len(msg.Requests) != 1 {
-		return nil
-	}
-	req := msg.Requests[0]
-	if req.CmdType != raft_cmdpb.CmdType_Put && req.CmdType != raft_cmdpb.CmdType_Delete {
-		return nil
-	}
-	if msg.Header.Serial > p.ClientSerial[msg.Header.Client] {
-		return nil
-	}
-	resp := newCmdResp()
-	resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
-		CmdType: req.CmdType,
-	})
-	switch req.CmdType {
-	case raft_cmdpb.CmdType_Put:
-		resp.Responses[0].Put = new(raft_cmdpb.PutResponse)
-	case raft_cmdpb.CmdType_Delete:
-		resp.Responses[0].Delete = new(raft_cmdpb.DeleteResponse)
-	default:
-		panic("never execute")
-	}
-	return resp
 }

@@ -734,3 +734,7 @@ func TestSplitConfChangeSnapshotUnreliableRecoverConcurrentPartition3B(t *testin
 	// Test: unreliable net, restarts, partitions, snapshots, conf change, many clients (3B) ...
 	GenericTest(t, "3B", 5, true, true, true, 100, true, true)
 }
+
+func TestSimple3B(t *testing.T) {
+	GenericTest(t, "3B", 5, false, false, false, -1, false, false)
+}

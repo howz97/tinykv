@@ -18,9 +18,9 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"sort"
 	"strings"
 
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
@@ -114,6 +114,7 @@ func (c *Config) validate() error {
 // progresses of all followers, and sends entries to the follower based on its progress.
 type Progress struct {
 	Match, Next uint64
+	BeatAck     uint64
 }
 
 type Raft struct {
@@ -151,8 +152,9 @@ type Raft struct {
 	withoutHeartbeat int
 	campaignAfter    int
 	// tick advances the internal logical clock by a single tick.
-	tick func()
-	step func(pb.Message) error
+	tick           func()
+	heartbeatRound uint64
+	step           func(pb.Message) error
 
 	// leadTransferee is id of the leader transfer target when its value is not zero.
 	// Follow the procedure defined in section 3.10 of Raft phd thesis.
@@ -168,6 +170,7 @@ type Raft struct {
 	// value.
 	// (Used in 3A conf change)
 	PendingConfIndex uint64
+	readOnly         *readOnly
 }
 
 // newRaft return a raft peer with the given config
@@ -204,7 +207,6 @@ func newRaft(c *Config) *Raft {
 		electionTimeout:  c.ElectionTick,
 		withoutHeartbeat: c.ElectionTick,
 	}
-	rf.campaignAfter = rf.randTimeout()
 	rf.becomeFollower(hardState.Term, None)
 	rf.Vote = hardState.Vote
 	log.Infof("Raft %s start...", rf)
@@ -250,12 +252,13 @@ func (r *Raft) sendAppend(to uint64) bool {
 		Entries: pents,
 	}
 	r.sendMsg(to, m)
+	log.Debugf("%s try append entries to peer%d, preMatch=(t%d,i%d), %d entries", r, to, lt, prs.Next-1, len(pents))
 	return true
 }
 
 // sendHeartbeat sends a heartbeat RPC to the given peer.
-func (r *Raft) sendHeartbeat(to uint64) {
-	m := &pb.Message{MsgType: pb.MessageType_MsgHeartbeat}
+func (r *Raft) sendHeartbeat(to uint64, round uint64) {
+	m := &pb.Message{MsgType: pb.MessageType_MsgHeartbeat, CtxNum: round}
 	r.sendMsg(to, m)
 }
 
@@ -270,6 +273,34 @@ func (r *Raft) tickNormal() {
 			From:    r.id,
 			Term:    r.Term,
 		})
+	} else {
+		if r.State == StatePreCandidate || r.State == StateCandidate {
+			r.maybeResendRequestVote()
+		}
+	}
+}
+
+func (r *Raft) maybeResendRequestVote() {
+	interval := r.electionTimeout / 3
+	if r.campaignAfter%interval == 0 {
+		logTerm, logIdx := r.RaftLog.LastEntry()
+		m := &pb.Message{
+			MsgType: voteType(r.State),
+			LogTerm: logTerm,
+			Index:   logIdx,
+		}
+		for to := range r.Prs {
+			if to == r.id {
+				continue
+			}
+			if _, ok := r.votes[to]; ok {
+				continue
+			}
+			// resend request vote
+			r.sendMsg(to, m)
+			log.Infof("%s did not received vote response from %d, curVotes=%v(size=%d), resending...",
+				r, to, r.votes, len(r.Prs))
+		}
 	}
 }
 
@@ -286,11 +317,14 @@ func (r *Raft) tickLeader() {
 }
 
 func (r *Raft) bcastHeartbeat() {
+	r.heartbeatRound++
+	log.Debugf("%s broadcast heartbeat, round=%d prs=%s", r, r.heartbeatRound, r.ProgressStr())
 	for id := range r.Prs {
 		if id == r.id {
+			r.Prs[id].BeatAck = r.heartbeatRound
 			continue
 		}
-		r.sendHeartbeat(id)
+		r.sendHeartbeat(id, r.heartbeatRound)
 	}
 }
 
@@ -304,6 +338,11 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.tick = r.tickNormal
 	r.step = r.stepFollower
 	r.leadTransferee = None
+	r.campaignAfter = r.randTimeout()
+	if r.readOnly != nil {
+		log.Warnf("%s become follower but, read-only has %d/%d requests",
+			r, len(r.readOnly.processing), len(r.readOnly.nextBatch))
+	}
 	log.Infof("raft state transfer: %s -> %s, campaignAfter=%v", bef, r, r.campaignAfter)
 }
 
@@ -311,8 +350,9 @@ func (r *Raft) becomePreCandidate() {
 	bef := r.String()
 	r.State = StatePreCandidate
 	r.step = r.stepPreCandidate
+	r.tick = r.tickNormal
 	// use short electionInterval to retry quickly under unreliable network condition
-	r.campaignAfter = r.electionTimeout
+	r.campaignAfter = r.randTimeout()
 	log.Infof("raft state transfer: %s -> %s, campaignAfter=%v", bef, r, r.campaignAfter)
 	r.preVotes()
 }
@@ -323,6 +363,7 @@ func (r *Raft) becomeCandidate() {
 	r.Term++
 	r.State = StateCandidate
 	r.step = r.stepCandidate
+	r.tick = r.tickNormal
 	r.Lead = None
 	r.Vote = None
 	r.campaignAfter = r.randTimeout()
@@ -389,6 +430,7 @@ func (r *Raft) becomeLeader() {
 		prs.Match = 0
 		prs.Next = next
 	}
+	r.readOnly = new(readOnly)
 	// propose no-op entry
 	noOp := &pb.Entry{
 		EntryType: pb.EntryType_EntryNormal,
@@ -421,7 +463,6 @@ func (r *Raft) Step(m pb.Message) error {
 	if OnlyFromLeader[m.MsgType] {
 		// message from leader, and handled by follower
 		r.withoutHeartbeat = 0
-		r.campaignAfter = r.randTimeout()
 		switch r.State {
 		case StateFollower:
 			r.Lead = m.From
@@ -670,17 +711,13 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 
 func (r *Raft) handleAppendResp(resp pb.Message) {
 	prs := r.Prs[resp.From]
+	if prs == nil {
+		log.Warnf("%s received stale message from removed peer, %v", r, resp)
+		return
+	}
 	if !resp.Reject {
 		if resp.Index > prs.Match {
-			prs.Match = resp.Index
-			prs.Next = prs.Match + 1
-			if r.leaderMaybeCommit() {
-				// broadcast commit index
-				r.bcastAppend()
-			}
-			if r.leadTransferee != None && r.matchAllLog(r.leadTransferee) {
-				r.sendTimeout()
-			}
+			r.leaderUpdateMatch(prs, resp.Index)
 		}
 		return
 	}
@@ -703,8 +740,20 @@ func (r *Raft) handleAppendResp(resp pb.Message) {
 		}
 	}
 	prs.Next = index + 1
-	log.Infof("%s probing Next index %d", r, prs.Next)
+	log.Infof("%s probing Next index %d for peer%d", r, prs.Next, resp.From)
 	r.sendAppend(resp.From)
+}
+
+func (r *Raft) leaderUpdateMatch(prs *Progress, match uint64) {
+	prs.Match = match
+	prs.Next = prs.Match + 1
+	if r.leaderMaybeCommit() {
+		// broadcast commit index
+		r.bcastAppend()
+	}
+	if r.leadTransferee != None && r.matchAllLog(r.leadTransferee) {
+		r.sendTimeout()
+	}
 }
 
 func (r *Raft) sendSnapshot(to uint64) bool {
@@ -727,13 +776,11 @@ func (r *Raft) leaderMaybeCommit() bool {
 	if len(r.Prs) == 0 {
 		return false
 	}
-	var commit uint64
-	var matchs []int
+	var matchs []uint64
 	for _, prs := range r.Prs {
-		matchs = append(matchs, int(prs.Match))
+		matchs = append(matchs, prs.Match)
 	}
-	sort.Sort(sort.Reverse(sort.IntSlice(matchs)))
-	commit = uint64(matchs[len(r.Prs)/2])
+	commit := MajorityValue(matchs)
 	if commit <= r.RaftLog.committed {
 		return false
 	}
@@ -767,16 +814,39 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 	r.campaignAfter = r.randTimeout()
 	resp := &pb.Message{
 		MsgType: pb.MessageType_MsgHeartbeatResponse,
+		CtxNum:  m.CtxNum,
 	}
 	resp.Term, resp.Index = r.RaftLog.LastEntry()
 	r.sendMsg(m.From, resp)
-	log.Debugf("%s received heartbeat from %d, campaignAfter=%v", r, m.From, r.campaignAfter)
+	log.Debugf("%s received heartbeat from leader%d, round=%d, campaignAfter=%v", r, m.From, m.CtxNum, r.campaignAfter)
 }
 
 func (r *Raft) handleHeartBeatResp(m pb.Message) {
+	prs := r.Prs[m.From]
+	if prs == nil {
+		return
+	}
+	log.Debugf("%s log=%s, prs=%s handle heart beat response %s", r, r.RaftLog, r.ProgressStr(), m.String())
+	t, err := r.RaftLog.Term(m.Index)
+	if err == nil && t == m.LogTerm && prs.Match < m.Index {
+		r.leaderUpdateMatch(prs, m.Index)
+	}
 	if r.RaftLog.NewerThan(m.LogTerm, m.Index) {
 		r.sendAppend(m.From)
 	}
+	if m.CtxNum > prs.BeatAck {
+		prs.BeatAck = m.CtxNum
+		log.Debugf("%s updated BeatAck=%d of peer%d, prs=%s", r, prs.BeatAck, m.From, r.ProgressStr())
+	}
+}
+
+func (r *Raft) ProgressStr() string {
+	str := "["
+	for id, p := range r.Prs {
+		str += fmt.Sprintf("(peer%d,m=%d,ack=%d)", id, p.Match, p.BeatAck)
+	}
+	str += "]"
+	return str
 }
 
 // m.MsgType is MessageType_MsgRequestVote or MessageType_MsgPreVote
@@ -809,7 +879,7 @@ func (r *Raft) handleRequestVote(m pb.Message) {
 		r.Vote = m.From
 	}
 	r.sendMsg(m.From, resp)
-	log.Infof("%s handleRequestVote, r.Vote=%v, r.withoutBeat=%d, r.Log=%v: granted vote to %s", r, r.Vote, r.withoutHeartbeat, r.RaftLog, m)
+	log.Infof("%s handleRequestVote, r.Vote=%v, r.withoutBeat=%d, r.Log=%v: granted vote to %s", r, r.Vote, r.withoutHeartbeat, r.RaftLog, m.String())
 }
 
 // m.MsgType is MessageType_MsgRequestVoteResponse or MessageType_MsgPreVoteResp
@@ -826,7 +896,6 @@ func (r *Raft) handleRequestVoteResp(m pb.Message) {
 			r.requestVotes(false)
 		}
 	} else if len(r.votes)-n > len(r.Prs)/2 {
-		r.campaignAfter = r.randTimeout()
 		r.becomeFollower(r.Term, None)
 	}
 }
@@ -844,19 +913,21 @@ func (r *Raft) ready() Ready {
 	rd := Ready{
 		Entries:          r.RaftLog.unstableEntries(),
 		CommittedEntries: r.RaftLog.nextEnts(),
-		Messages:         r.msgs,
+		ReadOnly:         r.readyReadOnly(),
 	}
 	if r.RaftLog.pendingSnapshot != nil {
 		rd.Snapshot = *r.RaftLog.pendingSnapshot
 	}
-	r.msgs = nil
+	// readyReadOnly may broadcast heartbeats, so rd.Messages handled at last
+	rd.Messages, r.msgs = r.msgs, nil
 	return rd
 }
 
 func (r *Raft) hasReady(hs pb.HardState) bool {
 	return len(r.msgs) > 0 || r.RaftLog.committed > r.RaftLog.applied ||
 		r.RaftLog.pendingSnapshot != nil || r.RaftLog.stabled < r.RaftLog.LastIndex() ||
-		hs.Term != r.Term || hs.Commit != r.RaftLog.committed || hs.Vote != r.Vote
+		hs.Term != r.Term || hs.Commit != r.RaftLog.committed || hs.Vote != r.Vote ||
+		r.isReadOnlyReady()
 }
 
 func (r *Raft) hardState() pb.HardState {
@@ -925,6 +996,9 @@ func (r *Raft) addNode(id uint64) {
 
 // removeNode remove a node from raft group
 func (r *Raft) removeNode(id uint64) {
+	if r.leadTransferee == id {
+		r.leadTransferee = None
+	}
 	delete(r.Prs, id)
 	if len(r.Prs) == 0 {
 		log.Warnf("group has 0 member")
@@ -957,4 +1031,53 @@ func (r *Raft) ChooseTransferee() uint64 {
 		}
 	}
 	return transferee
+}
+
+func (r *Raft) proposalRead(cmd *message.MsgRaftCmd) {
+	// accumulate queries
+	r.readOnly.nextBatch = append(r.readOnly.nextBatch, cmd)
+	log.Infof("%s readOnly=%s, accumulated query %v", r, r.readOnly, cmd.Request)
+}
+
+func (r *Raft) readyReadOnly() []*message.MsgRaftCmd {
+	if !r.isReadOnlyReady() {
+		return nil
+	}
+	readOnly := r.readOnly
+	rd := r.readOnly.processing
+	readOnly.processing, readOnly.nextBatch = readOnly.nextBatch, nil
+	readOnly.round = r.heartbeatRound + 1
+	r.bcastHeartbeat()
+	log.Infof("%s has %d read-only requests get ready, next %d requests wait ack of round %d",
+		r, len(rd), len(readOnly.processing), readOnly.round)
+	return rd
+}
+
+func (r *Raft) MajorityAckRound() uint64 {
+	var acks []uint64
+	for _, p := range r.Prs {
+		acks = append(acks, p.BeatAck)
+	}
+	return MajorityValue(acks)
+}
+
+func (r *Raft) isReadOnlyReady() bool {
+	if r.State != StateLeader {
+		return false
+	}
+	if t, _ := r.RaftLog.Term(r.RaftLog.committed); t != r.Term {
+		return false
+	}
+	pending := len(r.readOnly.processing) + len(r.readOnly.nextBatch)
+	return pending > 0 && r.MajorityAckRound() >= r.readOnly.round
+}
+
+type readOnly struct {
+	round      uint64
+	processing []*message.MsgRaftCmd
+	nextBatch  []*message.MsgRaftCmd
+}
+
+func (ro *readOnly) String() string {
+	return fmt.Sprintf("(waitRnd=%d,now=%d,next=%d)", ro.round, len(ro.processing), len(ro.nextBatch))
 }

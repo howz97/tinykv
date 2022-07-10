@@ -149,6 +149,16 @@ var RespMsgOf = map[pb.MessageType]pb.MessageType{
 	pb.MessageType_MsgHeartbeat:   pb.MessageType_MsgHeartbeatResponse,
 }
 
+func voteType(state StateType) pb.MessageType {
+	if state == StatePreCandidate {
+		return pb.MessageType_MsgPreVote
+	} else if state == StateCandidate {
+		return pb.MessageType_MsgRequestVote
+	} else {
+		panic("invalid state")
+	}
+}
+
 func isHardStateEqual(a, b pb.HardState) bool {
 	return a.Term == b.Term && a.Vote == b.Vote && a.Commit == b.Commit
 }
@@ -164,4 +174,9 @@ func CheckErr(err error) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func MajorityValue(vals []uint64) uint64 {
+	sort.Slice(vals, func(i, j int) bool { return vals[i] > vals[j] })
+	return vals[len(vals)/2]
 }

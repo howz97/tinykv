@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Connor1996/badger"
 	"github.com/Connor1996/badger/y"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
@@ -79,15 +80,43 @@ func (d *peerMsgHandler) HandleRaftReady() {
 				log.Infof("peer %s applied and response snap entry=(t%d,i%d)", d.Tag, ent.Term, ent.Index)
 				cb.Txn = d.ctx.engine.Kv.NewTransaction(false)
 			}
-			// if cb != nil && len(resp.Responses) > 0 && resp.Responses[0].CmdType == raft_cmdpb.CmdType_Put {
-			// 	log.Infof("peer %s applied and response put entry=(t%d,i%d)", d.Tag, ent.Term, ent.Index)
-			// }
 		case eraftpb.EntryType_EntryConfChange:
 			resp = d.applyConfChange(ent)
 		}
 		cb.Done(resp)
 		if d.stopped {
 			return
+		}
+	}
+	for _, cmd := range rd.ReadOnly {
+		req := cmd.Request.Requests[0]
+		resp := newCmdResp()
+		switch req.CmdType {
+		case raft_cmdpb.CmdType_Get:
+			r, err := d.processGet(req.Get)
+			if err != nil {
+				resp = ErrResp(err)
+				break
+			}
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Get,
+				Get:     r,
+			})
+		case raft_cmdpb.CmdType_Snap:
+			r, err := d.processSnap(cmd.Request)
+			if err != nil {
+				resp = ErrResp(err)
+				break
+			}
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Snap,
+				Snap:    r,
+			})
+			cmd.Callback.Txn = d.ctx.engine.Kv.NewTransaction(false)
+		}
+		cmd.Callback.Done(resp)
+		if cmd.Request.Header.Serial > d.ClientSerial[cmd.Request.Header.Client] {
+			d.ClientSerial[cmd.Request.Header.Client] = cmd.Request.Header.Serial
 		}
 	}
 	d.RaftGroup.Advance(rd)
@@ -156,48 +185,32 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.R
 	}
 	for _, req := range reqs.Requests {
 		switch req.CmdType {
-		case raft_cmdpb.CmdType_Get:
-			r, err := d.processGet(req.Get)
-			if err != nil {
-				return nil, err
-			}
-			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
-				CmdType: raft_cmdpb.CmdType_Get,
-				Get:     r,
-			})
 		case raft_cmdpb.CmdType_Put:
+			if reqs.Header.Serial > d.peer.ClientSerial[reqs.Header.Client] {
+				d.peer.ClientSerial[reqs.Header.Client] = reqs.Header.Serial
+			}
 			r, err := d.processPut(req.Put)
 			if err != nil {
 				return nil, err
-			}
-			if reqs.Header.Serial > d.peer.ClientSerial[reqs.Header.Client] {
-				d.peer.ClientSerial[reqs.Header.Client] = reqs.Header.Serial
 			}
 			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
 				CmdType: raft_cmdpb.CmdType_Put,
 				Put:     r,
 			})
+			log.Infof("%s applied put command %v", d.Tag, req)
 		case raft_cmdpb.CmdType_Delete:
+			if reqs.Header.Serial > d.peer.ClientSerial[reqs.Header.Client] {
+				d.peer.ClientSerial[reqs.Header.Client] = reqs.Header.Serial
+			}
 			r, err := d.processDel(req.Delete)
 			if err != nil {
 				return nil, err
-			}
-			if reqs.Header.Serial > d.peer.ClientSerial[reqs.Header.Client] {
-				d.peer.ClientSerial[reqs.Header.Client] = reqs.Header.Serial
 			}
 			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
 				CmdType: raft_cmdpb.CmdType_Delete,
 				Delete:  r,
 			})
-		case raft_cmdpb.CmdType_Snap:
-			r, err := d.processSnap(reqs)
-			if err != nil {
-				return nil, err
-			}
-			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
-				CmdType: raft_cmdpb.CmdType_Snap,
-				Snap:    r,
-			})
+			log.Infof("%s applied delete command %v", d.Tag, req)
 		default:
 			panic("unknown CmdType")
 		}
@@ -238,14 +251,10 @@ func (d *peerMsgHandler) processPut(req *raft_cmdpb.PutRequest) (*raft_cmdpb.Put
 		return nil, err
 	}
 	err = engine_util.PutCF(d.ctx.engine.Kv, req.Cf, req.Key, req.Value)
-	if err != nil {
-		log.Errorf("processPut error %v", err)
-		return nil, err
-	}
+	util.CheckErr(err)
 	resp := new(raft_cmdpb.PutResponse)
 	d.SizeDiffHint += uint64(len(req.Key) + len(req.Value))
-	log.Infof("%s applied put command %v", d.Tag, req)
-	return resp, err
+	return resp, nil
 }
 
 func (d *peerMsgHandler) processDel(req *raft_cmdpb.DeleteRequest) (*raft_cmdpb.DeleteResponse, error) {
@@ -254,7 +263,8 @@ func (d *peerMsgHandler) processDel(req *raft_cmdpb.DeleteRequest) (*raft_cmdpb.
 		return resp, err
 	}
 	err := engine_util.DeleteCF(d.ctx.engine.Kv, req.Cf, req.Key)
-	return resp, err
+	util.CheckErr(err)
+	return resp, nil
 }
 
 func (d *peerMsgHandler) processAdmin(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.RaftCmdResponse, error) {
@@ -370,7 +380,7 @@ func (d *peerMsgHandler) HandleMsg(msg message.Msg) {
 		}
 	case message.MsgTypeRaftCmd:
 		raftCMD := msg.Data.(*message.MsgRaftCmd)
-		d.proposeRaftCommand(raftCMD.Request, raftCMD.Callback)
+		d.proposeRaftCommand(raftCMD)
 	case message.MsgTypeTick:
 		d.onTick()
 	case message.MsgTypeSplitRegion:
@@ -423,7 +433,9 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) e
 	return err
 }
 
-func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *message.Callback) {
+func (d *peerMsgHandler) proposeRaftCommand(raftCmd *message.MsgRaftCmd) {
+	msg := raftCmd.Request
+	cb := raftCmd.Callback
 	err := d.preProposeRaftCommand(msg)
 	if err != nil {
 		cb.Done(ErrResp(err))
@@ -440,29 +452,17 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 			return
 		}
 	} else {
-		// response directly if Put/Delete has already executed
-		if resp := d.IdempotentWritten(msg); resp != nil {
+		// optimize:
+		// response directly if this retry has already executed
+		if resp, txn := d.ReplyRetryInstantly(msg); resp != nil {
+			cb.Txn = txn
 			cb.Done(resp)
-			log.Debugf("%s IdempotentWritten skip %v, ClientSerial=%v, kvs=%v",
-				d.Tag, msg, d.ClientSerial, engine_util.GetRange(d.ctx.engine.Kv, d.Region().StartKey, d.Region().EndKey))
+			log.Infof("%s ResponseRetry skip %v", d.Tag, msg)
 			return
 		}
-		// response Snap without distribute log through raft
-		req := msg.Requests[0]
-		if req.CmdType == raft_cmdpb.CmdType_Snap {
-			var resp *raft_cmdpb.RaftCmdResponse
-			r, err := d.processSnap(msg)
-			if err != nil {
-				resp = ErrResp(err)
-			} else {
-				resp = newCmdResp()
-				resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
-					CmdType: raft_cmdpb.CmdType_Snap,
-					Snap:    r,
-				})
-				cb.Txn = d.ctx.engine.Kv.NewTransaction(false)
-			}
-			cb.Done(resp)
+		if util.ReadOnlyCmd[msg.Requests[0].CmdType] {
+			d.peer.RaftGroup.ProposalRead(raftCmd)
+			log.Infof("%s proposaled read only request %s", d.Tag, msg.String())
 			return
 		}
 	}
@@ -475,18 +475,52 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 	err = d.RaftGroup.Propose(data)
 	if err != nil {
 		cb.Done(ErrResp(err))
+		return
 	}
 	// record CallBack
 	lt, li := d.RaftGroup.Raft.RaftLog.LastEntry()
 	if cb != nil {
-		pp := &proposal{
-			index: li,
-			term:  lt,
-			cb:    cb,
-		}
-		d.proposals = append(d.proposals, pp)
+		d.recordProposal(lt, li, cb)
 	}
 	log.Infof("%s proposed raft entry (t%d,i%d), %s", d.Tag, lt, li, msg)
+}
+
+func (d *peerMsgHandler) ReplyRetryInstantly(msg *raft_cmdpb.RaftCmdRequest) (resp *raft_cmdpb.RaftCmdResponse, txn *badger.Txn) {
+	if msg.Header == nil || msg.Header.Serial == 0 || len(msg.Requests) != 1 {
+		return
+	}
+	if msg.Header.Serial > d.ClientSerial[msg.Header.Client] {
+		return
+	}
+	req := msg.Requests[0]
+	resp = newCmdResp()
+	resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+		CmdType: req.CmdType,
+	})
+	switch req.CmdType {
+	case raft_cmdpb.CmdType_Put:
+		resp.Responses[0].Put = new(raft_cmdpb.PutResponse)
+	case raft_cmdpb.CmdType_Delete:
+		resp.Responses[0].Delete = new(raft_cmdpb.DeleteResponse)
+	case raft_cmdpb.CmdType_Get:
+		r, err := d.processGet(req.Get)
+		if err != nil {
+			resp = ErrResp(err)
+			break
+		}
+		resp.Responses[0].Get = r
+	case raft_cmdpb.CmdType_Snap:
+		r, err := d.processSnap(msg)
+		if err != nil {
+			resp = ErrResp(err)
+			break
+		}
+		resp.Responses[0].Snap = r
+		txn = d.ctx.engine.Kv.NewTransaction(false)
+	default:
+		panic("never execute")
+	}
+	return
 }
 
 func (d *peerMsgHandler) proposalTransfer(req *raft_cmdpb.TransferLeaderRequest, cb *message.Callback) {
@@ -544,13 +578,7 @@ func (d *peerMsgHandler) proposalChangerPeer(req *raft_cmdpb.ChangePeerRequest, 
 		return
 	}
 	lt, li := d.RaftGroup.Raft.RaftLog.LastEntry()
-	pp := &proposal{
-		index: li,
-		term:  lt,
-		cb:    cb,
-	}
-	d.proposals = append(d.proposals, pp)
-	log.Debugf("proposeRaftCommand=%s, proposals=%s", pp, d.proposalStr())
+	d.recordProposal(lt, li, cb)
 }
 
 func ignoreChangePeer(region *metapb.Region, typ eraftpb.ConfChangeType, store uint64) bool {
@@ -891,7 +919,7 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 	request := newCompactLogRequest(regionID, d.Meta, compactIdx, term)
 	log.Infof("onRaftGCLogTick propose admin command to make snapshot, region=%d, (t%d,i%d)",
 		regionID, term, compactIdx)
-	d.proposeRaftCommand(request, nil)
+	d.proposeRaftCommand(&message.MsgRaftCmd{Request: request})
 }
 
 func (d *peerMsgHandler) onSplitRegionCheckTick() {
@@ -912,7 +940,7 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 		approx = *d.ApproximateSize
 	}
 	if approx+d.SizeDiffHint < d.ctx.cfg.RegionMaxSize {
-		log.Infof("onSplitRegionCheckTick %s do not send msg: %v, (Approx=%v+hint=%v) splitMax=%d/%d",
+		log.Debugf("onSplitRegionCheckTick %s do not send msg: %v, (Approx=%v+hint=%v) splitMax=%d/%d",
 			d.Tag, d.ApproximateSize, approx, d.SizeDiffHint, d.ctx.cfg.RegionMaxSize, d.ctx.cfg.RegionSplitSize)
 		return
 	}

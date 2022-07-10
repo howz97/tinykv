@@ -26,7 +26,7 @@ const InvalidID uint64 = 0
 // when receiving these messages, or just to wait for a pending region split to perform
 // later.
 func IsInitialMsg(msg *eraftpb.Message) bool {
-	return msg.MsgType == eraftpb.MessageType_MsgRequestVote ||
+	return IsVoteMessage(msg) ||
 		// the peer has not been known to this leader, it may exist or not.
 		(msg.MsgType == eraftpb.MessageType_MsgHeartbeat && msg.Commit == RaftInvalidIndex)
 }
@@ -218,4 +218,9 @@ func CopyRegion(origin *metapb.Region) *metapb.Region {
 	err := CloneMsg(origin, cp)
 	CheckErr(err)
 	return cp
+}
+
+var ReadOnlyCmd = map[raft_cmdpb.CmdType]bool{
+	raft_cmdpb.CmdType_Get:  true,
+	raft_cmdpb.CmdType_Snap: true,
 }
