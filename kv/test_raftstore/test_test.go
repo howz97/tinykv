@@ -705,7 +705,6 @@ func TestOneSplit3B(t *testing.T) {
 }
 
 func TestSplitRecover3B(t *testing.T) {
-	log.GetLogLevel()
 	// Test: restarts, snapshots, conf change, one client (3B) ...
 	GenericTest(t, "3B", 1, false, true, false, -1, false, true)
 }
