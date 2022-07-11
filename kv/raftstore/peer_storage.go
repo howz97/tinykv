@@ -331,7 +331,7 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 // Hint: things need to do here including: update peer storage state like raftState and applyState, etc,
 // and send RegionTaskApply task to region worker through ps.regionSched, also remember call ps.clearMeta
 // and ps.clearExtraData to delete stale data
-func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
+func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
 	log.Infof("%v begin to apply snapshot to engine %v", ps.Tag, ps.Engines)
 	ps.snapState.StateType = snap.SnapState_Applying
 	snapData := new(rspb.RaftSnapshotData)
@@ -390,16 +390,16 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (rlt *ApplySnapResult, 
 			return
 		}
 	}
-	if len(ready.CommittedEntries) > 0 {
-		app := ready.CommittedEntries[len(ready.CommittedEntries)-1].Index
-		if app > ps.applyState.AppliedIndex {
-			ps.applyState.AppliedIndex = app
-			err = kvWB.SetMeta(meta.ApplyStateKey(ps.region.Id), ps.applyState)
-			if err != nil {
-				return
-			}
-		}
-	}
+	// if len(ready.CommittedEntries) > 0 {
+	// 	app := ready.CommittedEntries[len(ready.CommittedEntries)-1].Index
+	// 	if app > ps.applyState.AppliedIndex {
+	// 		ps.applyState.AppliedIndex = app
+	// 		err = kvWB.SetMeta(meta.ApplyStateKey(ps.region.Id), ps.applyState)
+	// 		if err != nil {
+	// 			return
+	// 		}
+	// 	}
+	// }
 	if len(ready.Entries) > 0 {
 		err = ps.Append(ready.Entries, raftWB)
 		if err != nil {
