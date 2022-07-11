@@ -161,6 +161,7 @@ func (bs *Raftstore) loadPeers() ([]*peer, error) {
 			// No need to check duplicated here, because we use region id as the key
 			// in DB.
 			regionPeers = append(regionPeers, peer)
+			log.Infof("%s started, current kvs=%s", peer.Tag, engine_util.GetRange(ctx.engine.Kv, region.StartKey, region.EndKey))
 		}
 		return nil
 	})

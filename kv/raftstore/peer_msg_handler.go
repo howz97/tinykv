@@ -363,6 +363,7 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest, kvWB *e
 	resp.Regions = append(resp.Regions, util.CopyRegion(region0), util.CopyRegion(region1))
 	log.Infof("peer %s on store %v finished to split region, new peer=%v, regions=%v ### %v",
 		d.Tag, d.storeID(), peer.Tag, region0, region1)
+	log.Infof("%s current has kvs=%s", peer.Tag, engine_util.GetRange(d.ctx.engine.Kv, region1.StartKey, region1.EndKey))
 	if d.IsLeader() {
 		// let a random peer to tell PD that new region has been generated
 		peer.HeartbeatScheduler(d.ctx.schedulerTaskSender)
