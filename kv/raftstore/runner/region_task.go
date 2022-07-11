@@ -180,7 +180,7 @@ func doSnapshot(engines *engine_util.Engines, mgr *snap.SnapManager, regionId ui
 	if err != nil {
 		panic(err)
 	}
-	log.Infof("doSnapshot %v, region=%s", regionState.State, regionState.String())
+	log.Infof("doSnapshot %v, region=%s, SnapKey=%+v", regionState.State, regionState.String(), key)
 	if regionState.GetState() != rspb.PeerState_Normal {
 		return nil, errors.Errorf("snap job %d seems stale, skip", regionId)
 	}

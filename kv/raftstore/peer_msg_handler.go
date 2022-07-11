@@ -63,8 +63,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		storeMeta.regions[d.regionId] = result.Region
 		storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: result.Region})
 		storeMeta.Unlock()
-		kvs := engine_util.GetRange(d.ctx.engine.Kv, result.Region.StartKey, result.Region.EndKey)
-		log.Infof("region state changed from %s to %s: kvs=%v", result.PrevRegion, result.Region, kvs)
+		log.Infof("region state changed from %s to %s", result.PrevRegion, result.Region)
 	}
 	d.peer.Send(d.ctx.trans, rd.Messages)
 	for _, ent := range rd.CommittedEntries {
