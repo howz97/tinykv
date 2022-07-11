@@ -114,6 +114,7 @@ func (ps *PeerStorage) Entries(low, high uint64) ([]eraftpb.Entry, error) {
 		}
 		// May meet gap or has been compacted.
 		if entry.Index != nextIndex {
+			log.Errorf("PeerStorage.Entries[%d,%d), nextIndex=%d, entry.Index=%d", low, high, nextIndex, entry.Index)
 			break
 		}
 		nextIndex++
@@ -173,7 +174,7 @@ func (ps *PeerStorage) Snapshot() (eraftpb.Snapshot, error) {
 			if ps.validateSnap(&snapshot) {
 				return snapshot, nil
 			}
-			log.Infof("@@@ %s genarated invalid snapshot", ps.Tag)
+			log.Infof("%s genarated invalid snapshot", ps.Tag)
 		} else {
 			log.Warnf("%s failed to try generating snapshot, times: %d", ps.Tag, ps.snapTriedCnt)
 		}

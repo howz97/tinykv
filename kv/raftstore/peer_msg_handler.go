@@ -274,9 +274,14 @@ func (d *peerMsgHandler) processAdmin(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cm
 	switch reqs.AdminRequest.CmdType {
 	case raft_cmdpb.AdminCmdType_CompactLog:
 		req := reqs.AdminRequest.CompactLog
-		d.peer.peerStorage.applyState.TruncatedState.Index = req.CompactIndex
-		d.peer.peerStorage.applyState.TruncatedState.Term = req.CompactTerm
-		err := engine_util.PutMeta(d.peerStorage.Engines.Kv, meta.ApplyStateKey(d.regionId), d.peer.peerStorage.applyState)
+		state := d.peerStorage.applyState
+		if req.CompactIndex <= state.TruncatedState.Index {
+			log.Warnf("%s ignore invalid compact %d<=%d", d.Tag, req.CompactIndex, state.TruncatedState.Index)
+			break
+		}
+		state.TruncatedState.Index = req.CompactIndex
+		state.TruncatedState.Term = req.CompactTerm
+		err := engine_util.PutMeta(d.peerStorage.Engines.Kv, meta.ApplyStateKey(d.regionId), state)
 		util.CheckErr(err)
 		d.ScheduleCompactLog(req.CompactIndex)
 		resp.CompactLog = new(raft_cmdpb.CompactLogResponse)
@@ -635,10 +640,9 @@ func (d *peerMsgHandler) ScheduleCompactLog(truncatedIndex uint64) {
 	raftLogGCTask := &runner.RaftLogGCTask{
 		RaftEngine: d.ctx.engine.Raft,
 		RegionID:   d.regionId,
-		StartIdx:   d.LastCompactedIdx,
+		StartIdx:   d.peerStorage.truncatedIndex() + 1,
 		EndIdx:     truncatedIndex + 1,
 	}
-	d.LastCompactedIdx = raftLogGCTask.EndIdx
 	d.ctx.raftLogGCTaskSender <- raftLogGCTask
 	log.Infof("ScheduleCompactLog region=%d, range=[%d, %d)",
 		raftLogGCTask.RegionID, raftLogGCTask.StartIdx, raftLogGCTask.EndIdx)
@@ -891,6 +895,10 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 	if !d.IsLeader() {
 		return
 	}
+	// avoid frequently compaction
+	if d.peerStorage.AppliedIndex() < d.LastCompactedIdx {
+		return
+	}
 
 	appliedIdx := d.peerStorage.AppliedIndex()
 	firstIdx, _ := d.peerStorage.FirstIndex()
@@ -920,6 +928,7 @@ func (d *peerMsgHandler) onRaftGCLogTick() {
 	log.Infof("onRaftGCLogTick propose admin command to make snapshot, region=%d, (t%d,i%d)",
 		regionID, term, compactIdx)
 	d.proposeRaftCommand(&message.MsgRaftCmd{Request: request})
+	d.LastCompactedIdx = d.RaftGroup.Raft.RaftLog.LastIndex()
 }
 
 func (d *peerMsgHandler) onSplitRegionCheckTick() {
