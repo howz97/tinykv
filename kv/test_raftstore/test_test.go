@@ -211,14 +211,14 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 					key := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", j)
 					value := "x " + strconv.Itoa(cli) + " " + strconv.Itoa(j) + " y"
 					log.Infof("%d: client new put %v,%v\n", cli, key, value)
-					cluster.MustPut(uint64(cli+10000), []byte(key), []byte(value))
+					cluster.MustPut(int32(cli), []byte(key), []byte(value))
 					last = NextValue(last, value)
 					j++
 				} else {
 					start := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", 0)
 					end := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", j)
 					log.Infof("%d: client new scan %v-%v\n", cli, start, end)
-					values := cluster.Scan([]byte(start), []byte(end))
+					values := cluster.Scan(int32(cli), []byte(start), []byte(end))
 					v := string(bytes.Join(values, []byte("")))
 					if v != last {
 						log.Fatalf("get wrong value, client %v\nwant:%v\ngot: %v\n", cli, last, v)
@@ -274,20 +274,19 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 		for cli := 0; cli < nclients; cli++ {
 			// log.Printf("read from clients %d\n", cli)
 			j := <-clnts[cli]
-
 			if j < 10 {
 				log.Warnf("Warning: client %d managed to perform only %d put operations in 1 sec?\n", i, j)
 			}
 			start := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", 0)
 			end := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", j)
 			log.Infof("GenericTest client %d scan result j=%d [%s,%s)", cli, j, string(start), string(end))
-			values := cluster.Scan([]byte(start), []byte(end))
+			values := cluster.Scan(int32(cli), []byte(start), []byte(end))
 			v := string(bytes.Join(values, []byte("")))
 			checkClntAppends(t, cli, v, j)
 
 			for k := 0; k < j; k++ {
 				key := strconv.Itoa(cli) + " " + fmt.Sprintf("%08d", k)
-				cluster.MustDelete(uint64(cli+10000), []byte(key))
+				cluster.MustDelete(int32(cli), []byte(key))
 			}
 		}
 
@@ -382,7 +381,7 @@ func TestOnePartition2B(t *testing.T) {
 	log.Infof("TestOnePartition2B before: Put k1:v1")
 	cluster.MustPut(1, []byte("k1"), []byte("v1"))
 	log.Infof("TestOnePartition2B after: Put k1:v1")
-	cluster.MustGet([]byte("k1"), []byte("v1"))
+	cluster.MustGet(1, []byte("k1"), []byte("v1"))
 	log.Infof("TestOnePartition2B after: Get k1:v1")
 	MustGetNone(cluster.engines[s2[0]], []byte("k1"))
 	log.Infof("TestOnePartition2B after Get k1:None from s2[0]=%d", s2[0])
@@ -398,7 +397,7 @@ func TestOnePartition2B(t *testing.T) {
 		s2: s2,
 	})
 	log.Infof("TestOnePartition2B old leader in minority, new leader should be elected s1=%v,s2=%v", s1, s2)
-	cluster.MustGet([]byte("k1"), []byte("v1"))
+	cluster.MustGet(1, []byte("k1"), []byte("v1"))
 	log.Infof("TestOnePartition2B after: Get k1:v1")
 	cluster.MustPut(1, []byte("k1"), []byte("changed"))
 	log.Infof("TestOnePartition2B after: Put k1:changed")
@@ -576,7 +575,7 @@ func TestBasicConfChange3B(t *testing.T) {
 	cluster.MustAddPeer(1, NewPeer(2, 2))
 	log.Infof("TestBasicConfChange3B add peer2 back to region1 ")
 	cluster.MustPut(1, []byte("k2"), []byte("v2"))
-	cluster.MustGet([]byte("k2"), []byte("v2"))
+	cluster.MustGet(1, []byte("k2"), []byte("v2"))
 	MustGetEqual(cluster.engines[2], []byte("k1"), []byte("v1"))
 	MustGetEqual(cluster.engines[2], []byte("k2"), []byte("v2"))
 
@@ -591,7 +590,7 @@ func TestBasicConfChange3B(t *testing.T) {
 	cluster.MustRemovePeer(1, NewPeer(2, 2))
 
 	cluster.MustPut(1, []byte("k3"), []byte("v3"))
-	cluster.MustGet([]byte("k3"), []byte("v3"))
+	cluster.MustGet(1, []byte("k3"), []byte("v3"))
 	MustGetEqual(cluster.engines[3], []byte("k1"), []byte("v1"))
 	MustGetEqual(cluster.engines[3], []byte("k2"), []byte("v2"))
 	MustGetEqual(cluster.engines[3], []byte("k3"), []byte("v3"))

@@ -85,12 +85,13 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		case eraftpb.EntryType_EntryConfChange:
 			resp = d.applyConfChange(ent, kvWB)
 		}
+		if d.stopped {
+			cb.Done(resp)
+			return
+		}
 		kvWB.MustWriteToDB(d.ctx.engine.Kv)
 		kvWB.Reset()
 		cb.Done(resp)
-		if d.stopped {
-			return
-		}
 	}
 	for _, cmd := range rd.ReadOnly {
 		req := cmd.Request.Requests[0]
@@ -496,7 +497,7 @@ func (d *peerMsgHandler) proposeRaftCommand(raftCmd *message.MsgRaftCmd) {
 }
 
 func (d *peerMsgHandler) ReplyRetryInstantly(msg *raft_cmdpb.RaftCmdRequest) (resp *raft_cmdpb.RaftCmdResponse, txn *badger.Txn) {
-	if msg.Header == nil || msg.Header.Serial == 0 || len(msg.Requests) != 1 {
+	if msg.Header == nil || len(msg.Requests) != 1 {
 		return
 	}
 	if msg.Header.Serial > d.ClientSerial[msg.Header.Client] {

@@ -390,16 +390,6 @@ func (ps *PeerStorage) SaveReadyState(ready *raft.Ready) (rlt *ApplySnapResult, 
 			return
 		}
 	}
-	// if len(ready.CommittedEntries) > 0 {
-	// 	app := ready.CommittedEntries[len(ready.CommittedEntries)-1].Index
-	// 	if app > ps.applyState.AppliedIndex {
-	// 		ps.applyState.AppliedIndex = app
-	// 		err = kvWB.SetMeta(meta.ApplyStateKey(ps.region.Id), ps.applyState)
-	// 		if err != nil {
-	// 			return
-	// 		}
-	// 	}
-	// }
 	if len(ready.Entries) > 0 {
 		err = ps.Append(ready.Entries, raftWB)
 		if err != nil {
