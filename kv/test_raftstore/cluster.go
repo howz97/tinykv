@@ -382,6 +382,7 @@ func (c *Cluster) Scan(client int32, start, end []byte) [][]byte {
 		if resp.Responses[0].CmdType != raft_cmdpb.CmdType_Snap {
 			panic("resp.Responses[0].CmdType != raft_cmdpb.CmdType_Snap")
 		}
+		regionKvs := ""
 		region := resp.Responses[0].GetSnap().Region
 		iter := raft_storage.NewRegionReader(txn, *region).IterCF(engine_util.CfDefault)
 		for iter.Seek(key); iter.Valid(); iter.Next() {
@@ -393,9 +394,10 @@ func (c *Cluster) Scan(client int32, start, end []byte) [][]byte {
 				panic(err)
 			}
 			values = append(values, value)
+			regionKvs += string(value)
 		}
 		iter.Close()
-
+		log.Infof("client %d got kvs from region %s, kvs=%s", client, region.String(), regionKvs)
 		key = region.EndKey
 		if len(key) == 0 {
 			break

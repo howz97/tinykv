@@ -101,19 +101,19 @@ project3a:
 
 project3b:
 	$(TEST_CLEAN)
-	$(GOTEST) ./kv/test_raftstore -run ^TestTransferLeader3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestBasicConfChange3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeRecover3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeRecoverManyClients3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeUnreliable3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeUnreliableRecover3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeSnapshotUnreliableRecover3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestTransferLeader3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestBasicConfChange3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestConfChangeRecover3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestConfChangeRecoverManyClients3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestConfChangeUnreliable3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestConfChangeUnreliableRecover3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestConfChangeSnapshotUnreliableRecover3B$ > output1.log || false
 	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeSnapshotUnreliableRecoverConcurrentPartition3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestOneSplit3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestSplitRecover3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestSplitRecoverManyClients3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestSplitUnreliable3B$ > output1.log || false
-	$(GOTEST) ./kv/test_raftstore -run ^TestSplitUnreliableRecover3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestOneSplit3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestSplitRecover3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestSplitRecoverManyClients3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestSplitUnreliable3B$ > output1.log || false
+	# $(GOTEST) ./kv/test_raftstore -run ^TestSplitUnreliableRecover3B$ > output1.log || false
 	$(GOTEST) ./kv/test_raftstore -run ^TestSplitConfChangeSnapshotUnreliableRecover3B$ > output1.log || false
 	$(GOTEST) ./kv/test_raftstore -run ^TestSplitConfChangeSnapshotUnreliableRecoverConcurrentPartition3B$ > output1.log || false
 	$(TEST_CLEAN)

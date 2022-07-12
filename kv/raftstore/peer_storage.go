@@ -264,6 +264,9 @@ func (ps *PeerStorage) clearMeta(kvWB, raftWB *engine_util.WriteBatch) error {
 
 // Delete all data that is not covered by `new_region`.
 func (ps *PeerStorage) clearExtraData(newRegion *metapb.Region) {
+	if ps.region.RegionEpoch.Version < InitEpochVer {
+		return
+	}
 	oldStartKey, oldEndKey := ps.region.GetStartKey(), ps.region.GetEndKey()
 	newStartKey, newEndKey := newRegion.GetStartKey(), newRegion.GetEndKey()
 	if bytes.Compare(oldStartKey, newStartKey) < 0 {
@@ -332,13 +335,11 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 // and send RegionTaskApply task to region worker through ps.regionSched, also remember call ps.clearMeta
 // and ps.clearExtraData to delete stale data
 func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
-	log.Infof("%v begin to apply snapshot to engine %v", ps.Tag, ps.Engines)
+	log.Infof("%v begin to apply snapshot %v", ps.Tag, snapshot.Metadata)
 	ps.snapState.StateType = snap.SnapState_Applying
 	snapData := new(rspb.RaftSnapshotData)
 	err := snapData.Unmarshal(snapshot.Data)
-	if err != nil {
-		return nil, err
-	}
+	util.CheckErr(err)
 	result := &ApplySnapResult{
 		PrevRegion: ps.region,
 		Region:     snapData.Region,
@@ -346,6 +347,7 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB, raftWB *e
 
 	ps.clearMeta(kvWB, raftWB)
 	ps.clearExtraData(snapData.Region)
+
 	ps.SetRegion(snapData.Region)
 	ps.raftState.LastIndex = snapshot.Metadata.Index
 	ps.raftState.LastTerm = snapshot.Metadata.Term
@@ -413,6 +415,7 @@ func (ps *PeerStorage) ClearData() {
 }
 
 func (ps *PeerStorage) clearRange(regionID uint64, start, end []byte) {
+	log.Infof("%s clear key-value range [%s,%s)", ps.Tag, string(start), string(end))
 	ps.regionSched <- &runner.RegionTaskDestroy{
 		RegionId: regionID,
 		StartKey: start,
