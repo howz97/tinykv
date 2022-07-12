@@ -142,7 +142,7 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry, kvWB *engine_util.Wr
 	resp = newCmdResp()
 	resp.AdminResponse = &raft_cmdpb.AdminResponse{
 		CmdType:    raft_cmdpb.AdminCmdType_ChangePeer,
-		ChangePeer: &raft_cmdpb.ChangePeerResponse{Region: new(metapb.Region)},
+		ChangePeer: &raft_cmdpb.ChangePeerResponse{},
 	}
 	cc := new(eraftpb.ConfChange)
 	err := cc.Unmarshal(ent.Data)
@@ -153,8 +153,7 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry, kvWB *engine_util.Wr
 	region := d.peerStorage.region
 	if ignoreChangePeer(region, cc.ChangeType, peer.StoreId) {
 		log.Warnf("applyConfChange %v peer %s but already excuted", cc.ChangeType, peer.String())
-		err := util.CloneMsg(region, resp.AdminResponse.ChangePeer.Region)
-		util.CheckErr(err)
+		resp.AdminResponse.ChangePeer.Region = util.CopyRegion(region)
 		return resp
 	}
 	log.Infof("peer %s applyConfChange(t%d,i%d) region %d: %s %d .", d.RaftGroup.Raft.String(), ent.Term, ent.Index, region.Id, cc.ChangeType, cc.NodeId)
@@ -168,8 +167,7 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry, kvWB *engine_util.Wr
 		if d.PeerId() == peer.Id && d.MaybeDestroy() {
 			// todo:
 			d.destroyPeer()
-			err = util.CloneMsg(region, resp.AdminResponse.ChangePeer.Region)
-			util.CheckErr(err)
+			resp.AdminResponse.ChangePeer.Region = util.CopyRegion(region)
 			return
 		}
 	default:
@@ -177,8 +175,7 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry, kvWB *engine_util.Wr
 	}
 	log.Infof("peer %s applyConfChange(t%d,i%d), newest config %s", d.RaftGroup.Raft.String(), ent.Term, ent.Index, region)
 	d.RaftGroup.ApplyConfChange(*cc)
-	err = util.CloneMsg(region, resp.AdminResponse.ChangePeer.Region)
-	util.CheckErr(err)
+	resp.AdminResponse.ChangePeer.Region = util.CopyRegion(region)
 	kvWB.SetMeta(meta.RegionStateKey(d.regionId), &rspb.RegionLocalState{Region: region})
 	return
 }
