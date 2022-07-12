@@ -1,5 +1,8 @@
 #!/bin/bash
 for i in {1..50}
 do
-   make project3b || exit
+   SECONDS=0
+   make project_hard || exit
+   echo "----- This test takes $SECONDS seconds to pass -----"
 done
+

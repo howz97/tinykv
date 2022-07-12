@@ -330,7 +330,7 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest, kvWB *e
 	}
 	for i, id := range req.NewPeerIds {
 		if i >= len(region0.Peers) {
-			log.Warnf("%s config change occured during region split, current region=%s, req.NewPeerIds=%v",
+			log.Warnf("%s processAdminSplit config change occured during region split, current region=%s, req.NewPeerIds=%v",
 				d.Tag, region0, req.NewPeerIds)
 			break
 		}
@@ -963,7 +963,7 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	log.Infof("onSplitRegionCheckTick %s send check split message: (Approx=%v + hint=%v) splitMax=%d/%d",
 		d.Tag, approx, d.SizeDiffHint, d.ctx.cfg.RegionMaxSize, d.ctx.cfg.RegionSplitSize)
 	d.ctx.splitCheckTaskSender <- &runner.SplitCheckTask{
-		Region: d.Region(),
+		Region: util.CopyRegion(d.Region()),
 	}
 	// SplitCheckTask maybe time consuming, set smaller ApproximateSize to avoid duplicated scan
 	// ApproximateSize will be replaced by scan result as soon as scan finished
@@ -976,9 +976,8 @@ func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, s
 		cb.Done(ErrResp(err))
 		return
 	}
-	region := d.Region()
 	d.ctx.schedulerTaskSender <- &runner.SchedulerAskSplitTask{
-		Region:   region,
+		Region:   util.CopyRegion(d.Region()),
 		SplitKey: splitKey,
 		Peer:     d.Meta,
 		Callback: cb,
