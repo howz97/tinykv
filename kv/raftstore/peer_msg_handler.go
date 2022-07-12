@@ -65,7 +65,10 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		storeMeta.Unlock()
 		log.Infof("region state changed from %s to %s", result.PrevRegion, result.Region)
 	}
+	// write raft state to disk before send message to peers
 	d.peer.Send(d.ctx.trans, rd.Messages)
+
+	// apply raft entries
 	kvWB := new(engine_util.WriteBatch)
 	for _, ent := range rd.CommittedEntries {
 		if len(ent.Data) == 0 {
@@ -91,8 +94,10 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		}
 		kvWB.MustWriteToDB(d.ctx.engine.Kv)
 		kvWB.Reset()
+		// write to disk before response client
 		cb.Done(resp)
 	}
+	// handle read-only requests
 	for _, cmd := range rd.ReadOnly {
 		req := cmd.Request.Requests[0]
 		resp := newCmdResp()
@@ -327,7 +332,7 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest, kvWB *e
 	}
 	for i, id := range req.NewPeerIds {
 		if i >= len(region0.Peers) {
-			log.Warnf("%s processAdminSplit config change occured during region split, current region=%s, req.NewPeerIds=%v",
+			log.Fatalf("%s processAdminSplit config change occured during region split, current region=%s, req.NewPeerIds=%v",
 				d.Tag, region0, req.NewPeerIds)
 			break
 		}
@@ -462,7 +467,7 @@ func (d *peerMsgHandler) proposeRaftCommand(raftCmd *message.MsgRaftCmd) {
 		}
 	} else {
 		// optimize:
-		// response directly if this retry has already executed
+		// response client instantly if already executed
 		if resp, txn := d.ReplyRetryInstantly(msg); resp != nil {
 			cb.Txn = txn
 			cb.Done(resp)
@@ -471,7 +476,6 @@ func (d *peerMsgHandler) proposeRaftCommand(raftCmd *message.MsgRaftCmd) {
 		}
 		if util.ReadOnlyCmd[msg.Requests[0].CmdType] {
 			d.peer.RaftGroup.ProposalRead(raftCmd)
-			log.Infof("%s proposaled read only request %s", d.Tag, msg.String())
 			return
 		}
 	}

@@ -2,7 +2,7 @@
 for i in {1..50}
 do
    SECONDS=0
-   make project_hard || exit
+   make project3b || exit
    echo "----- This test takes $SECONDS seconds to pass -----"
 done
 
