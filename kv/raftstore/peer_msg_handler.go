@@ -564,7 +564,20 @@ func (d *peerMsgHandler) proposalChangerPeer(req *raft_cmdpb.ChangePeerRequest, 
 		cb.Done(resp)
 		return
 	}
+	if d.RaftGroup.Raft.IsConfChanging() {
+		cb.Done(ErrResp(raft.ErrProposalDropped))
+		log.Warnf("%s proposal config change but last change is unfinish", d.Tag)
+		return
+	}
+	// consider this situation:
+	// 1) the group consists of leader1 and peer2
+	// 2) proposal config change to remove leader1, and the index of this entry is 10
+	// 3) leader1 apply remove and destroy self when (leader1,lastLog=10,commit=10) (peer2,lastLog=10,commit=8)
+	// 4) message including commit=10 is dropped, peer2 can not commit entry10, so peer2 can not know leader1 has been destroyed.
+	// 5) peer2 timeout and request vote of peer1 to become leader, but never get response, so no leader can be elected
+	// transfer leader before removing self can reduce the risk of falling into this situation
 	if req.ChangeType == eraftpb.ConfChangeType_RemoveNode && req.Peer.Id == d.PeerId() {
+		// check unfinished config change above to avoid choosing transferee is removing
 		ee := d.RaftGroup.Raft.ChooseTransferee()
 		if ee == raft.None {
 			panic("can not transfer leader")

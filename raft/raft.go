@@ -565,6 +565,10 @@ func (r *Raft) handleTransferLeader(m pb.Message) error {
 		log.Errorf("already be leader, do not need to transfer leader to self")
 		return nil
 	}
+	if r.leadTransferee != None {
+		log.Warnf("%s is transfering leader to %d, reject to transfer to %d", r, r.leadTransferee, m.From)
+		return ErrLeadTransfering
+	}
 	r.leadTransferee = m.From
 	if r.matchAllLog(r.leadTransferee) {
 		r.sendTimeout()
@@ -593,7 +597,7 @@ func (r *Raft) handlePropse(m pb.Message) error {
 		if len(m.Entries) != 1 {
 			panic("too many config change at a time")
 		}
-		if r.PendingConfIndex > r.RaftLog.applied {
+		if r.IsConfChanging() {
 			log.Warnf("%s proposal config change but pending(%d) not finish", r, r.PendingConfIndex)
 			return ErrProposalDropped
 		}
@@ -616,6 +620,10 @@ func (r *Raft) handlePropse(m pb.Message) error {
 		r.bcastAppend()
 	}
 	return nil
+}
+
+func (r *Raft) IsConfChanging() bool {
+	return r.PendingConfIndex > r.RaftLog.applied
 }
 
 func (r *Raft) bcastAppend() {
@@ -829,10 +837,16 @@ func (r *Raft) handleHeartBeatResp(m pb.Message) {
 	log.Debugf("%s log=%s, prs=%s handle heart beat response %s", r, r.RaftLog, r.ProgressStr(), m.String())
 	t, err := r.RaftLog.Term(m.Index)
 	if err == nil && t == m.LogTerm && prs.Match < m.Index {
+		// prs.match may miss update if message AppendResp dropped and no new entry proposaled
 		r.leaderUpdateMatch(prs, m.Index)
 	}
 	if r.RaftLog.NewerThan(m.LogTerm, m.Index) {
+		// continue to append entries to follower if message Append or AppendResp dropped
 		r.sendAppend(m.From)
+	}
+	if m.From == r.leadTransferee && r.matchAllLog(m.From) {
+		// resend TimeoutNow to avoid blocking proposal new entry
+		r.sendTimeout()
 	}
 	if m.CtxNum > prs.BeatAck {
 		prs.BeatAck = m.CtxNum
@@ -997,6 +1011,7 @@ func (r *Raft) addNode(id uint64) {
 // removeNode remove a node from raft group
 func (r *Raft) removeNode(id uint64) {
 	if r.leadTransferee == id {
+		// abort transfer leader if transferee is removed
 		r.leadTransferee = None
 	}
 	delete(r.Prs, id)
