@@ -190,7 +190,7 @@ func TestLeaderElectionInOneRoundRPC2AA(t *testing.T) {
 	for i, tt := range tests {
 		r := newTestRaft(1, idsBySize(tt.size), 10, 1, NewMemoryStorage())
 
-		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
+		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup, Force: true})
 		for id, vote := range tt.votes {
 			r.Step(pb.Message{From: id, To: 1, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: !vote})
 		}
@@ -249,7 +249,7 @@ func TestCandidateFallback2AA(t *testing.T) {
 	}
 	for i, tt := range tests {
 		r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, NewMemoryStorage())
-		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
+		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup, Force: true})
 		if r.State != StateCandidate {
 			t.Fatalf("unexpected state = %s, want %s", r.State, StateCandidate)
 		}
@@ -741,7 +741,7 @@ func TestLeaderSyncFollowerLog2AB(t *testing.T) {
 		// The second may have more up-to-date log than the first one, so the
 		// first node needs the vote from the third node to become the leader.
 		n := newNetwork(lead, follower, nopStepper)
-		n.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup})
+		n.send(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgHup, Force: true})
 		// The election occurs in the term after the one we loaded with
 		// lead's term and committed index setted up above.
 		n.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgRequestVoteResponse, Term: term + 1})

@@ -76,7 +76,7 @@ func diffu(a, b string) string {
 	aname, bname := mustTemp("base", a), mustTemp("other", b)
 	defer os.Remove(aname)
 	defer os.Remove(bname)
-	cmd := exec.Command("FC", aname, bname)
+	cmd := exec.Command("diff", "-u", aname, bname)
 	buf, err := cmd.CombinedOutput()
 	if err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
