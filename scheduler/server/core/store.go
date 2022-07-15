@@ -469,3 +469,17 @@ func (s *StoresInfo) UpdateStoreStatus(storeID uint64, leaderCount int, regionCo
 		s.SetStore(newStore)
 	}
 }
+
+type StoreSlice []*StoreInfo
+
+func (ss StoreSlice) Len() int {
+	return len(ss)
+}
+
+func (ss StoreSlice) Less(i, j int) bool {
+	return ss[i].regionSize < ss[j].regionSize
+}
+
+func (ss StoreSlice) Swap(i, j int) {
+	ss[i], ss[j] = ss[j], ss[i]
+}

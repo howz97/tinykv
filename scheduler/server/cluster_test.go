@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/kv"
 	. "github.com/pingcap/check"
+	"github.com/pingcap/log"
 )
 
 const (
@@ -55,6 +56,9 @@ func (s *testClusterInfoSuite) setUpTestCluster(c *C) (*RaftCluster, []*core.Reg
 		c.Assert(cluster.processRegionHeartbeat(region), IsNil)
 		checkRegions(c, cluster.core.Regions, regions[:i+1])
 	}
+
+	// todo: debug
+	log.Info("setUpTestCluster finisehd")
 
 	return cluster, regions
 }

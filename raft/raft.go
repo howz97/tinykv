@@ -318,7 +318,6 @@ func (r *Raft) tickLeader() {
 
 func (r *Raft) bcastHeartbeat() {
 	r.heartbeatRound++
-	log.Debugf("%s broadcast heartbeat, round=%d prs=%s", r, r.heartbeatRound, r.ProgressStr())
 	for id := range r.Prs {
 		if id == r.id {
 			r.Prs[id].BeatAck = r.heartbeatRound
@@ -326,6 +325,7 @@ func (r *Raft) bcastHeartbeat() {
 		}
 		r.sendHeartbeat(id, r.heartbeatRound)
 	}
+	log.Infof("%s broadcast heartbeat, round=%d prs=%s", r, r.heartbeatRound, r.ProgressStr())
 }
 
 // becomeFollower transform this peer's state to Follower
@@ -566,8 +566,7 @@ func (r *Raft) handleTransferLeader(m pb.Message) error {
 		return nil
 	}
 	if r.leadTransferee != None {
-		log.Warnf("%s is transfering leader to %d, reject to transfer to %d", r, r.leadTransferee, m.From)
-		return ErrLeadTransfering
+		log.Warnf("%s is transfering leader to %d, change to transfer to %d", r, r.leadTransferee, m.From)
 	}
 	r.leadTransferee = m.From
 	if r.matchAllLog(r.leadTransferee) {

@@ -8,7 +8,7 @@ require (
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang/protobuf v1.3.4
 	github.com/google/btree v1.0.0
-	github.com/howz97/algorithm v0.0.0-20220524133519-2d237afa59c6 // indirect
+	github.com/howz97/algorithm v0.0.0-20220619141913-e864e7f83693 // indirect
 	github.com/juju/errors v0.0.0-20181118221551-089d3ea4e4d5
 	github.com/juju/testing v0.0.0-20200510222523-6c8c298c77a0 // indirect
 	github.com/onsi/ginkgo v1.12.1 // indirect

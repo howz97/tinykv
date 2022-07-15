@@ -1379,7 +1379,7 @@ func TestLeaderTransferReceiveHigherTermVote3A(t *testing.T) {
 
 	// Transfer leadership to isolated node to let transfer pending.
 	nt.send(pb.Message{From: 3, To: 1, MsgType: pb.MessageType_MsgTransferLeader})
-	nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgHup, Index: 1, Term: 2})
+	nt.send(pb.Message{From: 2, To: 2, MsgType: pb.MessageType_MsgHup, Index: 1, Term: 2, Force: true})
 
 	checkLeaderTransferState(t, lead, StateFollower, 2)
 }

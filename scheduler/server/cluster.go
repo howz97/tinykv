@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/schedulerpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/logutil"
@@ -278,8 +279,46 @@ func (c *RaftCluster) handleStoreHeartbeat(stats *schedulerpb.StoreStats) error 
 
 // processRegionHeartbeat updates the region information.
 func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
-	// Your Code Here (3C).
+	epoch := region.GetRegionEpoch()
+	if epoch == nil {
+		log.Warn("region epoch is nil", zap.Any("region", region))
+		return fmt.Errorf("epoch is nil")
+	}
+	dirty := make(map[uint64]struct{})
+	collectFn := func(coll map[uint64]struct{}, reg *core.RegionInfo) {
+		for _, p := range reg.GetPeers() {
+			coll[p.StoreId] = struct{}{}
+		}
+	}
+	if origin := c.core.GetRegion(region.GetID()); origin != nil {
+		if util.IsEpochStale(epoch, origin.GetRegionEpoch()) {
+			return ErrRegionIsStale(region.GetMeta(), origin.GetMeta())
+		}
+		// check whether update can be skipped
+		if util.RegionEqual(region.GetMeta(), origin.GetMeta()) {
+			if region.GetLeader() == origin.GetLeader() &&
+				len(region.GetPendingPeers()) == 0 && len(origin.GetPendingPeers()) == 0 &&
+				region.GetApproximateSize() == origin.GetApproximateSize() {
+				// skip update
+				return nil
+			}
+		}
+		collectFn(dirty, origin)
+	}
+	for _, overlap := range c.core.GetOverlaps(region) {
+		if util.IsEpochStale(epoch, overlap.GetRegionEpoch()) {
+			return ErrRegionIsStale(region.GetMeta(), overlap.GetMeta())
+		}
+		collectFn(dirty, overlap)
+	}
+	collectFn(dirty, region)
 
+	// update
+	log.Debug("region update", zap.String("region.meta", region.GetMeta().String()))
+	c.core.PutRegion(region)
+	for storeID := range dirty {
+		c.updateStoreStatusLocked(storeID)
+	}
 	return nil
 }
 

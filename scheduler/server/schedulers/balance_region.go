@@ -14,6 +14,11 @@
 package schedulers
 
 import (
+	"sort"
+	"time"
+
+	"github.com/pingcap-incubator/tinykv/log"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/metapb"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
@@ -76,7 +81,53 @@ func (s *balanceRegionScheduler) IsScheduleAllowed(cluster opt.Cluster) bool {
 }
 
 func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operator {
-	// Your Code Here (3C).
+	var stores []*core.StoreInfo
+	for _, store := range cluster.GetStores() {
+		if store.GetState() != metapb.StoreState_Up {
+			continue
+		}
+		if store.IsBlocked() {
+			continue
+		}
+		if time.Since(store.GetLastHeartbeatTS()) > cluster.GetMaxStoreDownTime() {
+			continue
+		}
+		stores = append(stores, store)
+	}
+	if len(stores) <= cluster.GetMaxReplicas() {
+		return nil
+	}
+	sort.Sort(core.StoreSlice(stores))
+	src := stores[len(stores)-1]
+	region := cluster.RandPendingRegion(src.GetID())
+	if region == nil {
+		region = cluster.RandFollowerRegion(src.GetID())
+		if region == nil {
+			region = cluster.RandLeaderRegion(src.GetID())
+			if region == nil {
+				return nil
+			}
+		}
+	}
+	log.Debugf("balanceRegionScheduler selected region %v", region.GetMeta().String())
+	var dst *core.StoreInfo
+	for i := range stores {
+		dst = stores[i]
+		if region.GetStorePeer(dst.GetID()) == nil {
+			// only single replica of a region on each store
+			break
+		}
+	}
+	if dst == nil {
+		return nil
+	}
+	if dst.GetAvailable()-src.GetAvailable() < 2*uint64(region.GetApproximateSize()) {
+		return nil
+	}
 
-	return nil
+	op, err := operator.CreateMovePeerOperator("balance region", cluster, region, operator.OpBalance, src.GetID(), dst.GetID(), region.GetStorePeer(src.GetID()).Id)
+	if err != nil {
+		return nil
+	}
+	return op
 }
