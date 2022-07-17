@@ -20,6 +20,17 @@ func (ke *KeyError) Error() string {
 	return ke.String()
 }
 
+func ErrKeyLocked(key []byte, lock *Lock) *KeyError {
+	return &KeyError{
+		kvrpcpb.KeyError{Locked: &kvrpcpb.LockInfo{
+			PrimaryLock: lock.Primary,
+			LockVersion: lock.Ts,
+			Key:         key,
+			LockTtl:     lock.Ttl,
+		}},
+	}
+}
+
 // MvccTxn groups together writes as part of a single transaction. It also provides an abstraction over low-level
 // storage, lowering the concepts of timestamps, writes, and locks into plain keys and values.
 type MvccTxn struct {
@@ -87,7 +98,11 @@ func (txn *MvccTxn) GetValue(key []byte) ([]byte, error) {
 	if !itr.Valid() {
 		return nil, nil
 	}
-	val, err := itr.Item().Value()
+	item := itr.Item()
+	if !bytes.Equal(DecodeUserKey(item.Key()), key) {
+		return nil, nil
+	}
+	val, err := item.Value()
 	if err != nil {
 		return nil, err
 	}

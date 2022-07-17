@@ -122,7 +122,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 				CmdType: raft_cmdpb.CmdType_Snap,
 				Snap:    r,
 			})
-			cmd.Callback.Txn = d.ctx.engine.Kv.NewTransaction(false)
+			cmd.Callback.Txn = d.ctx.engine.Kv.NewTransaction(false) // fixme: true ?
 		}
 		cmd.Callback.Done(resp)
 		if cmd.Request.Header.Serial > d.ClientSerial[cmd.Request.Header.Client] {
@@ -529,7 +529,7 @@ func (d *peerMsgHandler) ReplyRetryInstantly(msg *raft_cmdpb.RaftCmdRequest) (re
 			break
 		}
 		resp.Responses[0].Snap = r
-		txn = d.ctx.engine.Kv.NewTransaction(false)
+		txn = d.ctx.engine.Kv.NewTransaction(false) // fixme: true ?
 	default:
 		panic("never execute")
 	}
