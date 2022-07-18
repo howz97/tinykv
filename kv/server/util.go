@@ -32,5 +32,7 @@ func ErrAbort(abort string) *kvrpcpb.KeyError {
 }
 
 func CheckErr(err error) {
-	panic(err)
+	if err != nil {
+		panic(err)
+	}
 }

@@ -130,6 +130,15 @@ func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*
 	defer reader.Close()
 	txn := mvcc.NewMvccTxn(reader, req.StartVersion)
 	for _, key := range req.Keys {
+		w, _, err := txn.CurrentWrite(key)
+		CheckErr(err)
+		if w != nil {
+			if w.Kind == mvcc.WriteKindRollback {
+				resp.Error = ErrAbort("already aborted")
+				break
+			}
+			continue
+		}
 		lock, err := txn.GetLock(key)
 		CheckErr(err)
 		if lock == nil {
@@ -144,6 +153,7 @@ func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*
 			StartTS: txn.StartTS,
 			Kind:    mvcc.WriteKindPut,
 		})
+		txn.DeleteLock(key)
 	}
 	err = server.storage.Write(req.Context, txn.Writes())
 	if err != nil {
