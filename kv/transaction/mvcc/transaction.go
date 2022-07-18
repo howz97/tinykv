@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 
 	"github.com/pingcap-incubator/tinykv/kv/storage"
+	"github.com/pingcap-incubator/tinykv/kv/util"
 	"github.com/pingcap-incubator/tinykv/kv/util/codec"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -63,9 +64,7 @@ func (txn *MvccTxn) PutWrite(key []byte, ts uint64, write *Write) {
 // if an error occurs during lookup.
 func (txn *MvccTxn) GetLock(key []byte) (*Lock, error) {
 	bytes, err := txn.Reader.GetCF(engine_util.CfLock, key)
-	if err != nil {
-		return nil, err
-	}
+	util.CheckErr(err)
 	if len(bytes) == 0 {
 		return nil, nil
 	}
@@ -103,13 +102,9 @@ func (txn *MvccTxn) GetValue(key []byte) ([]byte, error) {
 		return nil, nil
 	}
 	val, err := item.Value()
-	if err != nil {
-		return nil, err
-	}
+	util.CheckErr(err)
 	w, err := ParseWrite(val)
-	if err != nil {
-		return nil, err
-	}
+	util.CheckErr(err)
 	switch w.Kind {
 	case WriteKindPut:
 	case WriteKindDelete:
@@ -123,7 +118,7 @@ func (txn *MvccTxn) GetValue(key []byte) ([]byte, error) {
 	if !itr2.Valid() {
 		return nil, nil
 	}
-	return itr2.Item().Value()
+	return itr2.Item().ValueCopy(nil)
 }
 
 // PutValue adds a key/value write to this transaction.

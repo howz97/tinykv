@@ -55,3 +55,9 @@ func CalcCRC32(path string) (uint32, error) {
 	}
 	return digest.Sum32(), nil
 }
+
+func CheckErr(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
