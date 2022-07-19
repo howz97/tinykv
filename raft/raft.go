@@ -325,7 +325,7 @@ func (r *Raft) bcastHeartbeat() {
 		}
 		r.sendHeartbeat(id, r.heartbeatRound)
 	}
-	log.Infof("%s broadcast heartbeat, round=%d prs=%s", r, r.heartbeatRound, r.ProgressStr())
+	log.Debugf("%s broadcast heartbeat, round=%d prs=%s", r, r.heartbeatRound, r.ProgressStr())
 }
 
 // becomeFollower transform this peer's state to Follower
@@ -574,6 +574,7 @@ func (r *Raft) handleTransferLeader(m pb.Message) error {
 	} else {
 		r.sendAppend(r.leadTransferee)
 	}
+	log.Infof("%s start transfer leader to %d", r, r.leadTransferee)
 	return nil
 }
 
@@ -588,6 +589,7 @@ func (r *Raft) matchAllLog(to uint64) bool {
 
 func (r *Raft) handlePropse(m pb.Message) error {
 	if r.leadTransferee != None {
+		log.Warnf("%s reject proposal when transfering leader to %d", r, r.leadTransferee)
 		return ErrLeadTransfering
 	}
 	index := r.RaftLog.LastIndex() + 1
@@ -1045,6 +1047,10 @@ func (r *Raft) ChooseTransferee() uint64 {
 		}
 	}
 	return transferee
+}
+
+func (r *Raft) GetTransferee() uint64 {
+	return r.leadTransferee
 }
 
 func (r *Raft) proposalRead(cmd *message.MsgRaftCmd) {

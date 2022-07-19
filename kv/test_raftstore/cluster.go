@@ -13,6 +13,7 @@ import (
 	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/config"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/util"
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
@@ -190,7 +191,7 @@ func (c *Cluster) Request(client int32, key []byte, reqs []*raft_cmdpb.Request, 
 		req := NewRequest(regionID, region.RegionEpoch, reqs)
 		req.Header.Client = client
 		req.Header.Serial = serial
-		resp, txn := c.CallCommandOnLeader(&req, timeout)
+		resp, txn := c.CallCommandOnLeader(&req, timeout, key)
 		if resp == nil {
 			// it should be timeouted innerly
 			log.Infof("client %d request failed, key=%s, retry later...", client, string(key))
@@ -214,7 +215,7 @@ func (c *Cluster) CallCommand(request *raft_cmdpb.RaftCmdRequest, timeout time.D
 	return c.simulator.CallCommandOnStore(storeID, request, timeout)
 }
 
-func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeout time.Duration) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
+func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeout time.Duration, key []byte) (*raft_cmdpb.RaftCmdResponse, *badger.Txn) {
 	startTime := time.Now()
 	regionID := request.Header.RegionId
 	leader := c.LeaderOfRegion(regionID)
@@ -249,6 +250,22 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 			err := resp.Header.Error
 			if err.GetStaleCommand() != nil || err.GetEpochNotMatch() != nil || err.GetNotLeader() != nil {
 				log.Debugf("encouter retryable err %+v", resp)
+				// maybe region splited when requesting, resp will be EpochNotMatch until timeout
+				if nm := err.GetEpochNotMatch(); nm != nil && key != nil {
+					var region *metapb.Region
+					for _, reg := range nm.CurrentRegions {
+						if util.CheckKeyInRegion(key, reg) == nil {
+							region = reg
+							break
+						}
+					}
+					if region == nil {
+						region = c.GetRegion(key)
+					}
+					regionID = region.GetId()
+					request.Header.RegionId = regionID
+					request.Header.RegionEpoch = region.RegionEpoch
+				}
 				if err.GetNotLeader() != nil && err.GetNotLeader().Leader != nil {
 					leader = err.GetNotLeader().Leader
 					log.Debugf("retry on leader peer=%d,%d", leader.Id, leader.StoreId)
@@ -414,7 +431,7 @@ func (c *Cluster) TransferLeader(regionID uint64, leader *metapb.Peer) {
 	}
 	epoch := region.RegionEpoch
 	transferLeader := NewAdminRequest(regionID, epoch, NewTransferLeaderCmd(leader))
-	resp, _ := c.CallCommandOnLeader(transferLeader, 5*time.Second)
+	resp, _ := c.CallCommandOnLeader(transferLeader, 5*time.Second, nil)
 	if resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader {
 		panic("resp.AdminResponse.CmdType != raft_cmdpb.AdminCmdType_TransferLeader")
 	}

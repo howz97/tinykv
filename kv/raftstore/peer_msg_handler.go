@@ -432,6 +432,11 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) e
 		leader := d.getPeerFromCache(leaderID)
 		return &util.ErrNotLeader{RegionId: regionID, Leader: leader}
 	}
+	// stop proposal when transfering leader
+	if ee := d.RaftGroup.Raft.GetTransferee(); ee != raft.None {
+		leader := d.getPeerFromCache(ee)
+		return &util.ErrNotLeader{RegionId: regionID, Leader: leader}
+	}
 	// peer_id must be the same as peer's.
 	if err := util.CheckPeerID(req, d.PeerId()); err != nil {
 		return err
@@ -450,6 +455,7 @@ func (d *peerMsgHandler) preProposeRaftCommand(req *raft_cmdpb.RaftCmdRequest) e
 		if siblingRegion != nil {
 			errEpochNotMatching.Regions = append(errEpochNotMatching.Regions, siblingRegion)
 		}
+		log.Infof("preProposeRaftCommand errEpochNotMatching %v", errEpochNotMatching)
 		return errEpochNotMatching
 	}
 	return err

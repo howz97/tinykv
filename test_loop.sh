@@ -1,5 +1,5 @@
 #!/bin/bash
-for i in {1..2}
+for i in {1..50}
 do
    SECONDS=0
    make project_hard || exit

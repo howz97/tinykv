@@ -695,7 +695,7 @@ func TestOneSplit3B(t *testing.T) {
 	assert.True(t, bytes.Equal(right.GetEndKey(), region.GetEndKey()))
 
 	req := NewRequest(left.GetId(), left.GetRegionEpoch(), []*raft_cmdpb.Request{NewGetCfCmd(engine_util.CfDefault, []byte("k2"))})
-	resp, _ := cluster.CallCommandOnLeader(&req, time.Second)
+	resp, _ := cluster.CallCommandOnLeader(&req, time.Second, nil)
 	assert.NotNil(t, resp.GetHeader().GetError())
 	assert.NotNil(t, resp.GetHeader().GetError().GetKeyNotInRegion())
 	log.Infof("TestOneSplit3B resp=%v, header=%s", resp.String(), resp.Header.String())
