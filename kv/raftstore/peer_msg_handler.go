@@ -507,7 +507,7 @@ func (d *peerMsgHandler) proposeRaftCommand(raftCmd *message.MsgRaftCmd) {
 }
 
 func (d *peerMsgHandler) ReplyRetryInstantly(msg *raft_cmdpb.RaftCmdRequest) (resp *raft_cmdpb.RaftCmdResponse, txn *badger.Txn) {
-	if msg.Header == nil || len(msg.Requests) != 1 {
+	if msg.Header == nil || msg.Header.Serial == 0 {
 		return
 	}
 	if msg.Header.Serial > d.ClientSerial[msg.Header.Client] {
