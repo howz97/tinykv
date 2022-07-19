@@ -11,6 +11,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	coppb "github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/errorpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
 	"github.com/pingcap/tidb/kv"
@@ -61,9 +62,7 @@ func (server *Server) KvGet(_ context.Context, req *kvrpcpb.GetRequest) (*kvrpcp
 	defer reader.Close()
 	txn := mvcc.NewMvccTxn(reader, req.Version)
 	lock, err := txn.GetLock(req.Key)
-	if err != nil {
-		return nil, err
-	}
+	CheckErr(err)
 	if lock != nil {
 		if lock.Ts < txn.StartTS {
 			resp.Error = ErrKeyLocked(req.Key, lock)
@@ -71,17 +70,20 @@ func (server *Server) KvGet(_ context.Context, req *kvrpcpb.GetRequest) (*kvrpcp
 		}
 	}
 	val, err := txn.GetValue(req.Key)
-	if err != nil {
-		return nil, err
-	}
+	CheckErr(err)
 	resp.Value = val
-	if len(val) == 0 {
-		resp.NotFound = true
-	}
+	resp.NotFound = val == nil
 	return resp, nil
 }
 
 func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
+	var keys [][]byte
+	for _, mut := range req.Mutations {
+		keys = append(keys, mut.Key)
+	}
+	server.Latches.WaitForLatches(keys)
+	defer server.Latches.ReleaseLatches(keys)
+
 	resp := new(kvrpcpb.PrewriteResponse)
 	reader, err := server.storage.Reader(req.Context)
 	if err != nil {
@@ -122,6 +124,9 @@ func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest
 }
 
 func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
+	server.Latches.WaitForLatches(req.Keys)
+	defer server.Latches.ReleaseLatches(req.Keys)
+
 	resp := new(kvrpcpb.CommitResponse)
 	reader, err := server.storage.Reader(req.Context)
 	if err != nil {
@@ -195,6 +200,9 @@ func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrp
 }
 
 func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
+	server.Latches.WaitForLatches([][]byte{req.PrimaryKey})
+	defer server.Latches.ReleaseLatches([][]byte{req.PrimaryKey})
+
 	resp := new(kvrpcpb.CheckTxnStatusResponse)
 	reader, err := server.storage.Reader(req.Context)
 	if err != nil {
@@ -234,6 +242,9 @@ func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnS
 }
 
 func (server *Server) KvBatchRollback(_ context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
+	server.Latches.WaitForLatches(req.Keys)
+	defer server.Latches.ReleaseLatches(req.Keys)
+
 	resp := new(kvrpcpb.BatchRollbackResponse)
 	reader, err := server.storage.Reader(req.Context)
 	if err != nil {
@@ -279,6 +290,14 @@ func rollback(txn *mvcc.MvccTxn, ver uint64, keys [][]byte) *kvrpcpb.KeyError {
 
 func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
 	resp := new(kvrpcpb.ResolveLockResponse)
+	keys, re := server.txnKeysLocked(req.Context, req.StartVersion)
+	if re != nil {
+		resp.RegionError = re
+		return resp, nil
+	}
+	server.Latches.WaitForLatches(keys)
+	defer server.Latches.ReleaseLatches(keys)
+
 	reader, err := server.storage.Reader(req.Context)
 	if err != nil {
 		resp.RegionError = util.RaftstoreErrToPbError(err)
@@ -286,17 +305,6 @@ func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockR
 	}
 	defer reader.Close()
 	txn := mvcc.NewMvccTxn(reader, req.StartVersion)
-	var keys [][]byte
-	iter := txn.Reader.IterCF(engine_util.CfLock)
-	defer iter.Close()
-	for iter.Seek([]byte("")); iter.Valid(); iter.Next() {
-		item := iter.Item()
-		lock, err := txn.GetLock(item.Key())
-		CheckErr(err)
-		if lock.Ts == req.StartVersion {
-			keys = append(keys, item.KeyCopy(nil))
-		}
-	}
 	if req.CommitVersion > 0 {
 		resp.Error = commit(txn, req.CommitVersion, keys)
 	} else {
@@ -309,6 +317,28 @@ func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockR
 		}
 	}
 	return resp, nil
+}
+
+func (server *Server) txnKeysLocked(ctx *kvrpcpb.Context, ver uint64) ([][]byte, *errorpb.Error) {
+	reader, err := server.storage.Reader(ctx)
+	if err != nil {
+		return nil, util.RaftstoreErrToPbError(err)
+	}
+	defer reader.Close()
+
+	txn := mvcc.NewMvccTxn(reader, ver)
+	var keys [][]byte
+	iter := txn.Reader.IterCF(engine_util.CfLock)
+	defer iter.Close()
+	for iter.Seek([]byte("")); iter.Valid(); iter.Next() {
+		item := iter.Item()
+		lock, err := txn.GetLock(item.Key())
+		CheckErr(err)
+		if lock.Ts == ver {
+			keys = append(keys, item.KeyCopy(nil))
+		}
+	}
+	return keys, nil
 }
 
 // SQL push down commands.
