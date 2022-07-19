@@ -99,35 +99,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 	}
 	// handle read-only requests
 	for _, cmd := range rd.ReadOnly {
-		req := cmd.Request.Requests[0]
-		resp := newCmdResp()
-		switch req.CmdType {
-		case raft_cmdpb.CmdType_Get:
-			r, err := d.processGet(req.Get)
-			if err != nil {
-				resp = ErrResp(err)
-				break
-			}
-			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
-				CmdType: raft_cmdpb.CmdType_Get,
-				Get:     r,
-			})
-		case raft_cmdpb.CmdType_Snap:
-			r, err := d.processSnap(cmd.Request)
-			if err != nil {
-				resp = ErrResp(err)
-				break
-			}
-			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
-				CmdType: raft_cmdpb.CmdType_Snap,
-				Snap:    r,
-			})
-			cmd.Callback.Txn = d.ctx.engine.Kv.NewTransaction(false)
-		}
-		cmd.Callback.Done(resp)
-		if cmd.Request.Header.Serial > d.ClientSerial[cmd.Request.Header.Client] {
-			d.ClientSerial[cmd.Request.Header.Client] = cmd.Request.Header.Serial
-		}
+		d.processReadOnly(cmd.Request, cmd.Callback)
 	}
 	d.RaftGroup.Advance(rd)
 }
@@ -138,6 +110,7 @@ func (d *peerMsgHandler) applyNormal(ent eraftpb.Entry, kvWB *engine_util.WriteB
 	util.CheckErr(err)
 	resp, err := d.process(reqs, kvWB)
 	if err != nil {
+		kvWB.Reset()
 		return ErrResp(err)
 	}
 	return resp
@@ -223,6 +196,41 @@ func (d *peerMsgHandler) process(reqs *raft_cmdpb.RaftCmdRequest, kvWB *engine_u
 		}
 	}
 	return resp, nil
+}
+
+func (d *peerMsgHandler) processReadOnly(reqs *raft_cmdpb.RaftCmdRequest, cb *message.Callback) {
+	resp := newCmdResp()
+loop:
+	for _, req := range reqs.Requests {
+		switch req.CmdType {
+		case raft_cmdpb.CmdType_Get:
+			r, err := d.processGet(req.Get)
+			if err != nil {
+				resp = ErrResp(err)
+				break
+			}
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Get,
+				Get:     r,
+			})
+		case raft_cmdpb.CmdType_Snap:
+			r, err := d.processSnap(reqs)
+			if err != nil {
+				resp = ErrResp(err)
+				break
+			}
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Snap,
+				Snap:    r,
+			})
+			cb.Txn = d.ctx.engine.Kv.NewTransaction(false)
+			break loop
+		}
+	}
+	if reqs.Header.Serial > d.ClientSerial[reqs.Header.Client] {
+		d.ClientSerial[reqs.Header.Client] = reqs.Header.Serial
+	}
+	cb.Done(resp)
 }
 
 func (d *peerMsgHandler) processSnap(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmdpb.SnapResponse, error) {
@@ -505,33 +513,44 @@ func (d *peerMsgHandler) ReplyRetryInstantly(msg *raft_cmdpb.RaftCmdRequest) (re
 	if msg.Header.Serial > d.ClientSerial[msg.Header.Client] {
 		return
 	}
-	req := msg.Requests[0]
 	resp = newCmdResp()
-	resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
-		CmdType: req.CmdType,
-	})
-	switch req.CmdType {
-	case raft_cmdpb.CmdType_Put:
-		resp.Responses[0].Put = new(raft_cmdpb.PutResponse)
-	case raft_cmdpb.CmdType_Delete:
-		resp.Responses[0].Delete = new(raft_cmdpb.DeleteResponse)
-	case raft_cmdpb.CmdType_Get:
-		r, err := d.processGet(req.Get)
-		if err != nil {
-			resp = ErrResp(err)
-			break
+	for _, req := range msg.Requests {
+		switch req.CmdType {
+		case raft_cmdpb.CmdType_Put:
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Put,
+				Put:     new(raft_cmdpb.PutResponse),
+			})
+		case raft_cmdpb.CmdType_Delete:
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Delete,
+				Delete:  new(raft_cmdpb.DeleteResponse),
+			})
+		case raft_cmdpb.CmdType_Get:
+			r, err := d.processGet(req.Get)
+			if err != nil {
+				resp = ErrResp(err)
+				break
+			}
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Get,
+				Get:     r,
+			})
+		case raft_cmdpb.CmdType_Snap:
+			r, err := d.processSnap(msg)
+			if err != nil {
+				resp = ErrResp(err)
+				break
+			}
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{
+				CmdType: raft_cmdpb.CmdType_Snap,
+				Snap:    r,
+			})
+			txn = d.ctx.engine.Kv.NewTransaction(false)
+			return resp, txn
+		default:
+			panic("never execute")
 		}
-		resp.Responses[0].Get = r
-	case raft_cmdpb.CmdType_Snap:
-		r, err := d.processSnap(msg)
-		if err != nil {
-			resp = ErrResp(err)
-			break
-		}
-		resp.Responses[0].Snap = r
-		txn = d.ctx.engine.Kv.NewTransaction(false)
-	default:
-		panic("never execute")
 	}
 	return
 }
