@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"strings"
 
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/message"
 	"github.com/pingcap-incubator/tinykv/log"
@@ -340,8 +339,14 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.leadTransferee = None
 	r.campaignAfter = r.randTimeout()
 	if r.readOnly != nil {
-		log.Warnf("%s become follower but, read-only has %d/%d requests",
+		log.Warnf("%s become follower but, read-only has %d,%d requests",
 			r, len(r.readOnly.processing), len(r.readOnly.nextBatch))
+		ro := r.readOnly
+		ro.processing = append(ro.processing, ro.nextBatch...)
+		for _, cmd := range ro.processing {
+			cmd.Callback.Done(nil)
+		}
+		r.readOnly = nil
 	}
 	log.Infof("raft state transfer: %s -> %s, campaignAfter=%v", bef, r, r.campaignAfter)
 }
@@ -658,16 +663,15 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	index := m.Index
 	term, err := r.RaftLog.Term(index)
 	if err != nil {
-		if err != ErrUnavailable && !strings.HasPrefix(err.Error(), "entries' high") {
-			// remove this when stable
-			panic(err)
-		}
 		term, index = r.RaftLog.LastEntry()
 	}
 	for term > m.LogTerm {
 		index--
 		term, err = r.RaftLog.Term(index)
-		CheckErr(err)
+		if err != nil {
+			log.Errorf("%s, log=%v, ignore stale append entries %v", r, r.RaftLog, m)
+			return
+		}
 	}
 	if !(term == m.LogTerm && index == m.Index) {
 		resp.Reject = true

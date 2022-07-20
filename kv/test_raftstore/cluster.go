@@ -249,7 +249,7 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 		if resp.Header.Error != nil {
 			err := resp.Header.Error
 			if err.GetStaleCommand() != nil || err.GetEpochNotMatch() != nil || err.GetNotLeader() != nil {
-				log.Infof("encouter retryable err %+v", resp)
+				log.Debugf("encouter retryable err %+v", resp)
 				// maybe region splited when requesting
 				if nm := err.GetEpochNotMatch(); nm != nil && key != nil {
 					var region *metapb.Region

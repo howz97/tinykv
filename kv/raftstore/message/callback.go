@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/Connor1996/badger"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/raft_cmdpb"
 )
 
@@ -19,6 +20,9 @@ func (cb *Callback) Done(resp *raft_cmdpb.RaftCmdResponse) {
 	}
 	if resp != nil {
 		cb.Resp = resp
+	}
+	if len(cb.done) > 0 {
+		log.Panicf("Callback already done resp=%v", resp)
 	}
 	cb.done <- struct{}{}
 }

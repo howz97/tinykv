@@ -308,7 +308,7 @@ func (p *peer) Send(trans Transport, msgs []eraftpb.Message) {
 	for _, msg := range msgs {
 		err := p.sendRaftMessage(msg, trans)
 		if err != nil {
-			log.Debugf("%v send message err: %v", p.Tag, err)
+			log.Infof("%v send message err: %v", p.Tag, err)
 		}
 	}
 }
