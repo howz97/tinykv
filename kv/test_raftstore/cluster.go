@@ -249,18 +249,20 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 		if resp.Header.Error != nil {
 			err := resp.Header.Error
 			if err.GetStaleCommand() != nil || err.GetEpochNotMatch() != nil || err.GetNotLeader() != nil {
-				log.Debugf("encouter retryable err %+v", resp)
-				// maybe region splited when requesting, resp will be EpochNotMatch until timeout
+				log.Infof("encouter retryable err %+v", resp)
+				// maybe region splited when requesting
 				if nm := err.GetEpochNotMatch(); nm != nil && key != nil {
 					var region *metapb.Region
 					for _, reg := range nm.CurrentRegions {
 						if util.CheckKeyInRegion(key, reg) == nil {
 							region = reg
+							log.Infof("request %v received EpochNotMatch, retry hit region %v", request.String(), region)
 							break
 						}
 					}
 					if region == nil {
 						region = c.GetRegion(key)
+						log.Infof("request %v received EpochNotMatch, retry region %v", request.String(), region)
 					}
 					regionID = region.GetId()
 					request.Header.RegionId = regionID
@@ -268,7 +270,7 @@ func (c *Cluster) CallCommandOnLeader(request *raft_cmdpb.RaftCmdRequest, timeou
 				}
 				if err.GetNotLeader() != nil && err.GetNotLeader().Leader != nil {
 					leader = err.GetNotLeader().Leader
-					log.Debugf("retry on leader peer=%d,%d", leader.Id, leader.StoreId)
+					log.Infof("retry on leader peer=%d,%d", leader.Id, leader.StoreId)
 				} else {
 					leader = c.LeaderOfRegion(regionID)
 				}

@@ -128,10 +128,11 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry, kvWB *engine_util.Wr
 	peer := new(metapb.Peer)
 	err = peer.Unmarshal(cc.Context)
 	util.CheckErr(err)
-	region := d.peerStorage.region
+	// Copy-Modify-Replace to avoid data race
+	region := util.CopyRegion(d.Region())
 	if ignoreChangePeer(region, cc.ChangeType, peer.StoreId) {
 		log.Warnf("applyConfChange %v peer %s but already excuted", cc.ChangeType, peer.String())
-		resp.AdminResponse.ChangePeer.Region = util.CopyRegion(region)
+		resp.AdminResponse.ChangePeer.Region = region
 		return resp
 	}
 	log.Infof("peer %s applyConfChange(t%d,i%d) region %d: %s %d .", d.RaftGroup.Raft.String(), ent.Term, ent.Index, region.Id, cc.ChangeType, cc.NodeId)
@@ -143,17 +144,18 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry, kvWB *engine_util.Wr
 		util.RemovePeer(region, peer.StoreId)
 		d.removePeerCache(peer.Id)
 		if d.PeerId() == peer.Id && d.MaybeDestroy() {
-			// todo:
+			d.SetRegion(region)
 			d.destroyPeer()
-			resp.AdminResponse.ChangePeer.Region = util.CopyRegion(region)
+			resp.AdminResponse.ChangePeer.Region = region
 			return
 		}
 	default:
 		panic("unknown")
 	}
 	log.Infof("peer %s applyConfChange(t%d,i%d), newest config %s", d.RaftGroup.Raft.String(), ent.Term, ent.Index, region)
+	d.SetRegion(region)
 	d.RaftGroup.ApplyConfChange(*cc)
-	resp.AdminResponse.ChangePeer.Region = util.CopyRegion(region)
+	resp.AdminResponse.ChangePeer.Region = region
 	kvWB.SetMeta(meta.RegionStateKey(d.regionId), &rspb.RegionLocalState{Region: region})
 	return
 }
@@ -237,12 +239,12 @@ func (d *peerMsgHandler) processSnap(reqs *raft_cmdpb.RaftCmdRequest) (*raft_cmd
 	if reqs.Header.RegionEpoch.Version != d.Region().RegionEpoch.Version {
 		err := &util.ErrEpochNotMatch{
 			Message: "region split occured",
-			Regions: []*metapb.Region{util.CopyRegion(d.Region())},
+			Regions: []*metapb.Region{d.Region(), d.findSiblingRegion()},
 		}
 		return nil, err
 	}
 	resp := new(raft_cmdpb.SnapResponse)
-	resp.Region = util.CopyRegion(d.Region())
+	resp.Region = d.Region()
 	return resp, nil
 }
 
@@ -316,7 +318,8 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest, kvWB *e
 		log.Fatalf("processAdminSplit split request is invalid: %s", req)
 		return nil
 	}
-	region0 := d.Region()
+	// Copy-Modify-Replace to avoid data race
+	region0 := util.CopyRegion(d.Region())
 	if util.CheckKeyInRegion(req.SplitKey, region0) != nil {
 		log.Warnf("processAdminSplit key not in region %s req=%s, maybe already splited", d.Region(), req)
 		return nil
@@ -351,15 +354,16 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest, kvWB *e
 	}
 	region0.RegionEpoch.Version++
 	region0.EndKey = req.SplitKey
+	d.SetRegion(region0)
+	storeMeta.regions[region0.Id] = region0
+	storeMeta.regions[region1.Id] = region1
+	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region0})
+	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
 	kvWB.SetMeta(meta.RegionStateKey(region0.Id), &rspb.RegionLocalState{Region: region0})
 	kvWB.SetMeta(meta.RegionStateKey(region1.Id), &rspb.RegionLocalState{Region: region1})
 	// write to database now, because following createPeer call need to read this
 	kvWB.MustWriteToDB(d.ctx.engine.Kv)
 	kvWB.Reset()
-	storeMeta.regions[region0.Id] = region0
-	storeMeta.regions[region1.Id] = region1
-	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region0})
-	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})
 
 	// start peer of region1
 	peer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, region1)
@@ -370,7 +374,7 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest, kvWB *e
 
 	// response
 	resp := new(raft_cmdpb.SplitResponse)
-	resp.Regions = append(resp.Regions, util.CopyRegion(region0), util.CopyRegion(region1))
+	resp.Regions = append(resp.Regions, region0, region1)
 	log.Infof("peer %s on store %v finished to split region, new peer=%v, regions=%v ### %v",
 		d.Tag, d.storeID(), peer.Tag, region0, region1)
 	log.Infof("%s current has kvs=%s", peer.Tag, engine_util.GetRange(d.ctx.engine.Kv, region1.StartKey, region1.EndKey))
@@ -1002,7 +1006,7 @@ func (d *peerMsgHandler) onSplitRegionCheckTick() {
 	log.Infof("onSplitRegionCheckTick %s send check split message: (Approx=%v + hint=%v) splitMax=%d/%d",
 		d.Tag, approx, d.SizeDiffHint, d.ctx.cfg.RegionMaxSize, d.ctx.cfg.RegionSplitSize)
 	d.ctx.splitCheckTaskSender <- &runner.SplitCheckTask{
-		Region: util.CopyRegion(d.Region()),
+		Region: d.Region(),
 	}
 	// SplitCheckTask maybe time consuming, set smaller ApproximateSize to avoid duplicated scan
 	// ApproximateSize will be replaced by scan result as soon as scan finished
@@ -1016,7 +1020,7 @@ func (d *peerMsgHandler) onPrepareSplitRegion(regionEpoch *metapb.RegionEpoch, s
 		return
 	}
 	d.ctx.schedulerTaskSender <- &runner.SchedulerAskSplitTask{
-		Region:   util.CopyRegion(d.Region()),
+		Region:   d.Region(),
 		SplitKey: splitKey,
 		Peer:     d.Meta,
 		Callback: cb,
