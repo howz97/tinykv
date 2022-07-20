@@ -144,7 +144,6 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry, kvWB *engine_util.Wr
 		util.RemovePeer(region, peer.StoreId)
 		d.removePeerCache(peer.Id)
 		if d.PeerId() == peer.Id && d.MaybeDestroy() {
-			d.SetRegion(region)
 			d.destroyPeer()
 			resp.AdminResponse.ChangePeer.Region = region
 			return
@@ -153,7 +152,7 @@ func (d *peerMsgHandler) applyConfChange(ent eraftpb.Entry, kvWB *engine_util.Wr
 		panic("unknown")
 	}
 	log.Infof("peer %s applyConfChange(t%d,i%d), newest config %s", d.RaftGroup.Raft.String(), ent.Term, ent.Index, region)
-	d.SetRegion(region)
+	d.ctx.storeMeta.SetRegion(region, d.peer)
 	d.RaftGroup.ApplyConfChange(*cc)
 	resp.AdminResponse.ChangePeer.Region = region
 	kvWB.SetMeta(meta.RegionStateKey(d.regionId), &rspb.RegionLocalState{Region: region})
@@ -354,8 +353,7 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest, kvWB *e
 	}
 	region0.RegionEpoch.Version++
 	region0.EndKey = req.SplitKey
-	d.SetRegion(region0)
-	storeMeta.regions[region0.Id] = region0
+	storeMeta.setRegion(region0, d.peer)
 	storeMeta.regions[region1.Id] = region1
 	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region0})
 	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region1})

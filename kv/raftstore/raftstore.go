@@ -58,6 +58,12 @@ func (m *storeMeta) setRegion(region *metapb.Region, peer *peer) {
 	peer.SetRegion(region)
 }
 
+func (m *storeMeta) SetRegion(region *metapb.Region, peer *peer) {
+	m.Lock()
+	m.setRegion(region, peer)
+	m.Unlock()
+}
+
 // getOverlaps gets the regions which are overlapped with the specified region range.
 func (m *storeMeta) getOverlapRegions(region *metapb.Region) []*metapb.Region {
 	item := &regionItem{region: region}
