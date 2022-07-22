@@ -336,6 +336,7 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 // and ps.clearExtraData to delete stale data
 func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
 	log.Infof("%v begin to apply snapshot %v", ps.Tag, snapshot.Metadata)
+	// fixme: check snapshot overlap
 	ps.snapState.StateType = snap.SnapState_Applying
 	snapData := new(rspb.RaftSnapshotData)
 	err := snapData.Unmarshal(snapshot.Data)

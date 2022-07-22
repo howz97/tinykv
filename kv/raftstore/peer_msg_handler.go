@@ -327,8 +327,12 @@ func (d *peerMsgHandler) processAdminSplit(req *raft_cmdpb.SplitRequest, kvWB *e
 	storeMeta.Lock()
 	defer storeMeta.Unlock()
 	if _, ok := storeMeta.regions[req.NewRegionId]; ok {
-		log.Fatalf("%s processAdminSplit but new region already exist, maybe replicatePeer created it", d.Tag)
-		return nil
+		// destrop conflict peer
+		peer1 := d.ctx.router.get(req.NewRegionId).peer
+		peer1.Destroy(d.ctx.engine, true)
+		peer1.stopped = true
+		d.ctx.router.close(req.NewRegionId)
+		log.Errorf("%s processAdminSplit but new region already exist, maybe replicatePeer created it", d.Tag)
 	}
 	// change meta data
 	region1 := &metapb.Region{
@@ -480,6 +484,17 @@ func (d *peerMsgHandler) proposeRaftCommand(raftCmd *message.MsgRaftCmd) {
 		case raft_cmdpb.AdminCmdType_TransferLeader:
 			d.proposalTransfer(admReq.TransferLeader, cb)
 			return
+		case raft_cmdpb.AdminCmdType_Split:
+			if d.RaftGroup.Raft.IsConfChanging() {
+				log.Warnf("%s reject to proposal split %v because of pending config change", d.Tag, admReq.Split)
+				cb.Done(ErrResp(raft.ErrProposalDropped))
+				return
+			}
+			if lagger := d.RaftGroup.Raft.GetLagger(); len(lagger) > 0 {
+				log.Warnf("%s reject to proposal split %v because of lagger %v", d.Tag, admReq.Split, lagger)
+				cb.Done(ErrResp(raft.ErrProposalDropped))
+				return
+			}
 		}
 	} else {
 		// optimize:

@@ -134,5 +134,8 @@ project4c:
 
 project_hard:
 	$(TEST_CLEAN)
+	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeRecoverManyClients3B$ > output1.log || false
+	$(GOTEST) ./kv/test_raftstore -run ^TestConfChangeSnapshotUnreliableRecoverConcurrentPartition3B$ > output1.log || false
+	$(GOTEST) ./kv/test_raftstore -run ^TestSplitRecoverManyClients3B$ > output1.log || false
 	$(GOTEST) ./kv/test_raftstore -run ^TestSplitConfChangeSnapshotUnreliableRecoverConcurrentPartition3B$ > output1.log || false
 	$(TEST_CLEAN)

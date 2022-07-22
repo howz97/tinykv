@@ -81,6 +81,8 @@ func InitApplyState(kvEngine *badger.DB, region *metapb.Region) (*rspb.RaftApply
 		log.Infof("InitApplyState apply key not found, len(peers)=%d, %s", len(region.Peers), region.String())
 		applyState = new(rspb.RaftApplyState)
 		applyState.TruncatedState = new(rspb.RaftTruncatedState)
+		// len(region.Peers) == 0 if peer is replicated by config change, and need snapshot from leader
+		// len(region.Peers) > 0 if peer is created by split, do not need snapshot from leader
 		if len(region.Peers) > 0 {
 			applyState.AppliedIndex = RaftInitLogIndex
 			applyState.TruncatedState.Index = RaftInitLogIndex

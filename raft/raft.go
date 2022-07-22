@@ -1057,6 +1057,15 @@ func (r *Raft) GetTransferee() uint64 {
 	return r.leadTransferee
 }
 
+func (r *Raft) GetLagger() (lagger []uint64) {
+	for id, prs := range r.Prs {
+		if prs.Match == 0 {
+			lagger = append(lagger, id)
+		}
+	}
+	return lagger
+}
+
 func (r *Raft) proposalRead(cmd *message.MsgRaftCmd) {
 	// accumulate queries
 	r.readOnly.nextBatch = append(r.readOnly.nextBatch, cmd)
