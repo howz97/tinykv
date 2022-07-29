@@ -93,32 +93,35 @@ func (txn *MvccTxn) DeleteLock(key []byte) {
 func (txn *MvccTxn) GetValue(key []byte) ([]byte, error) {
 	itr := txn.Reader.IterCF(engine_util.CfWrite)
 	defer itr.Close()
-	itr.Seek(EncodeKey(key, txn.StartTS))
-	if !itr.Valid() {
+	var w *Write
+	for itr.Seek(EncodeKey(key, txn.StartTS)); itr.Valid(); itr.Next() {
+		item := itr.Item()
+		if !bytes.Equal(DecodeUserKey(item.Key()), key) {
+			break
+		}
+		val, err := item.Value()
+		util.CheckErr(err)
+		w, err = ParseWrite(val)
+		util.CheckErr(err)
+		if w.Kind != WriteKindRollback {
+			break
+		}
+	}
+	// key no found
+	if w == nil {
 		return nil, nil
 	}
-	item := itr.Item()
-	if !bytes.Equal(DecodeUserKey(item.Key()), key) {
-		return nil, nil
-	}
-	val, err := item.Value()
-	util.CheckErr(err)
-	w, err := ParseWrite(val)
-	util.CheckErr(err)
 	switch w.Kind {
 	case WriteKindPut:
-	case WriteKindDelete:
+		itr2 := txn.Reader.IterCF(engine_util.CfDefault)
+		defer itr2.Close()
+		itr2.Seek(EncodeKey(key, w.StartTS))
+		return itr2.Item().ValueCopy(nil)
+	case WriteKindDelete, WriteKindRollback:
 		return nil, nil
 	default:
 		panic("oops")
 	}
-	itr2 := txn.Reader.IterCF(engine_util.CfDefault)
-	defer itr2.Close()
-	itr2.Seek(EncodeKey(key, w.StartTS))
-	if !itr2.Valid() {
-		return nil, nil
-	}
-	return itr2.Item().ValueCopy(nil)
 }
 
 // PutValue adds a key/value write to this transaction.
@@ -154,13 +157,9 @@ func (txn *MvccTxn) CurrentWrite(key []byte) (*Write, uint64, error) {
 			break
 		}
 		val, err := item.Value()
-		if err != nil {
-			panic(err)
-		}
+		util.CheckErr(err)
 		w, err := ParseWrite(val)
-		if err != nil {
-			panic(err)
-		}
+		util.CheckErr(err)
 		if w.StartTS == txn.StartTS {
 			return w, ts, nil
 		}
@@ -173,23 +172,23 @@ func (txn *MvccTxn) CurrentWrite(key []byte) (*Write, uint64, error) {
 func (txn *MvccTxn) MostRecentWrite(key []byte) (*Write, uint64, error) {
 	itr := txn.Reader.IterCF(engine_util.CfWrite)
 	defer itr.Close()
-	itr.Seek(key)
-	if !itr.Valid() {
-		return nil, 0, nil
-	}
-	item := itr.Item()
-	userKey := DecodeUserKey(item.Key())
-	if !bytes.Equal(userKey, key) {
-		return nil, 0, nil
-	}
-	ts := decodeTimestamp(item.Key())
-	val, err := item.Value()
-	if err != nil {
-		panic(err)
-	}
-	w, err := ParseWrite(val)
-	if err != nil {
-		panic(err)
+	var w *Write
+	var ts uint64
+	for itr.Seek(key); itr.Valid(); itr.Next() {
+		item := itr.Item()
+		if !bytes.Equal(DecodeUserKey(item.Key()), key) {
+			break
+		}
+		ts = decodeTimestamp(item.Key())
+		val, err := item.Value()
+		util.CheckErr(err)
+		w, err = ParseWrite(val)
+		util.CheckErr(err)
+		if w.Kind != WriteKindRollback {
+			break
+		}
+		w = nil
+		ts = 0
 	}
 	return w, ts, nil
 }
